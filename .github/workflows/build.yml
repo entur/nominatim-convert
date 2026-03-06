@@ -38,14 +38,6 @@ jobs:
           key: ${{ matrix.target }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ matrix.target }}-cargo-
 
-      - name: Install PROJ (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libproj-dev
-
-      - name: Install PROJ (macOS)
-        if: runner.os == 'macOS'
-        run: brew install proj
-
       - name: Build
         run: cargo build --release
 

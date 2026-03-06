@@ -9,7 +9,7 @@ This is a Rust CLI that converts Norwegian geographic data into Nominatim NDJSON
 ## Build and test
 
 ```bash
-cargo build --release    # requires PROJ C library (brew install proj on macOS)
+cargo build --release    # PROJ is statically linked via bundled_proj
 cargo test --release     # run all tests
 cargo clippy --release   # should produce zero warnings
 ```

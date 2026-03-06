@@ -1,6 +1,6 @@
 [package]
 name = "nominatim-convert"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -10,7 +10,7 @@ quick-xml = { version = "0.37", features = ["serialize"] }
 osmpbf = "0.3"
 clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
-proj = "0.28"
+proj = { version = "0.28", features = ["bundled_proj"] }
 country-boundaries = "1"
 
 [profile.release]

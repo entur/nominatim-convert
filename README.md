@@ -14,13 +14,9 @@ A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-c
 
 ## Building
 
-Requires Rust 2024 edition (1.85+) and the [PROJ](https://proj.org/) C library for coordinate transformations.
+Requires Rust 2024 edition (1.85+). PROJ is statically linked via `bundled_proj`.
 
 ```bash
-# macOS
-brew install proj
-
-# Build release binary (with LTO)
 cargo build --release
 ```
 
