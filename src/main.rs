@@ -73,6 +73,13 @@ struct MatrikkelArgs {
 }
 
 fn main() {
+    // Suppress "Cannot find proj.db" warnings from bundled PROJ.
+    // We use a pipeline string that doesn't need the database.
+    if std::env::var_os("PROJ_DATA").is_none() {
+        // SAFETY: called at the start of main before any other threads are spawned.
+        unsafe { std::env::set_var("PROJ_DATA", "/dev/null") };
+    }
+
     let cli = Cli::parse();
 
     let result = match cli.action {
