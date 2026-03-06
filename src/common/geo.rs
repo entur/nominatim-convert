@@ -4,8 +4,11 @@ use country_boundaries::{CountryBoundaries, LatLon};
 use std::sync::LazyLock;
 
 thread_local! {
-    static UTM33_TO_WGS84: proj::Proj = proj::Proj::new_known_crs("EPSG:25833", "EPSG:4326", None)
-        .expect("Failed to create UTM33N -> WGS84 projection");
+    static UTM33_TO_WGS84: proj::Proj = proj::Proj::new(
+        "+proj=pipeline \
+         +step +inv +proj=utm +zone=33 +ellps=GRS80 \
+         +step +proj=longlat +datum=WGS84"
+    ).expect("Failed to create UTM33N -> WGS84 projection");
 }
 
 /// Convert UTM zone 33N (EPSG:25833) to WGS84 lat/lon using the proj crate.
