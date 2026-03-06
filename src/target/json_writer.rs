@@ -47,3 +47,93 @@ impl JsonWriter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::extra::Extra;
+
+    fn make_place(place_id: i64, name: &str) -> NominatimPlace {
+        NominatimPlace {
+            type_: "Place".to_string(),
+            content: vec![PlaceContent {
+                place_id,
+                object_type: "N".to_string(),
+                object_id: place_id,
+                categories: vec!["source.nsr".to_string()],
+                rank_address: 30,
+                importance: RawNumber::from_f64_6dp(0.5),
+                parent_place_id: None,
+                name: Some(Name {
+                    name: Some(name.to_string()),
+                    name_en: None,
+                    alt_name: None,
+                }),
+                address: Address::default(),
+                housenumber: None,
+                postcode: None,
+                country_code: Some("no".to_string()),
+                centroid: vec![10.0, 59.0],
+                bbox: vec![],
+                extra: Extra::default(),
+            }],
+        }
+    }
+
+    #[test]
+    fn test_export_creates_header_and_entries() {
+        let dir = std::env::temp_dir().join(format!("jw-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.ndjson");
+
+        let entries = vec![make_place(1, "Oslo S"), make_place(2, "Bergen")];
+        JsonWriter::export(&entries, &path, false).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 entries
+        assert!(lines[0].contains("NominatimDumpFile"));
+        assert!(lines[1].contains("Oslo S"));
+        assert!(lines[2].contains("Bergen"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_export_append_no_duplicate_header() {
+        let dir = std::env::temp_dir().join(format!("jw-append-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.ndjson");
+
+        // First write
+        JsonWriter::export(&[make_place(1, "Oslo")], &path, false).unwrap();
+        // Append
+        JsonWriter::export(&[make_place(2, "Bergen")], &path, true).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3); // 1 header + 2 entries
+        let header_count = lines.iter().filter(|l| l.contains("NominatimDumpFile")).count();
+        assert_eq!(header_count, 1);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_export_each_line_is_valid_json() {
+        let dir = std::env::temp_dir().join(format!("jw-json-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.ndjson");
+
+        JsonWriter::export(&[make_place(1, "Test")], &path, false).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        for line in content.lines() {
+            let parsed: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("Invalid JSON: {e}\nLine: {line}"));
+            assert!(parsed.is_object());
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

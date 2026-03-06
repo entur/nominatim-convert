@@ -122,6 +122,78 @@ fn byte_offset(chars: &[char], char_index: usize) -> usize {
     chars[..char_index].iter().map(|c| c.len_utf8()).sum()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_translate_simple_word() {
+        assert_eq!(translate("stasjon"), "station");
+    }
+
+    #[test]
+    fn test_translate_preserves_capitalization() {
+        assert_eq!(translate("Stasjon"), "Station");
+    }
+
+    #[test]
+    fn test_translate_all_caps() {
+        assert_eq!(translate("STASJON"), "STATION");
+    }
+
+    #[test]
+    fn test_translate_multi_word() {
+        assert_eq!(translate("Oslo stasjon"), "Oslo station");
+    }
+
+    #[test]
+    fn test_translate_unknown_word_preserved() {
+        assert_eq!(translate("Skøyen"), "Skøyen");
+    }
+
+    #[test]
+    fn test_translate_mixed_known_unknown() {
+        assert_eq!(translate("Skøyen stasjon"), "Skøyen station");
+    }
+
+    #[test]
+    fn test_translate_empty() {
+        assert_eq!(translate(""), "");
+        assert_eq!(translate("  "), "  ");
+    }
+
+    #[test]
+    fn test_translate_with_punctuation() {
+        assert_eq!(translate("stasjon, nord"), "station, north");
+    }
+
+    #[test]
+    fn test_translate_direction_words() {
+        assert_eq!(translate("nord"), "north");
+        assert_eq!(translate("sør"), "south");
+        assert_eq!(translate("øst"), "east");
+        assert_eq!(translate("vest"), "west");
+    }
+
+    #[test]
+    fn test_translate_transport_words() {
+        assert_eq!(translate("buss"), "bus");
+        assert_eq!(translate("tog"), "train");
+        assert_eq!(translate("trikk"), "tram");
+        assert_eq!(translate("t-bane"), "metro");
+        assert_eq!(translate("hurtigbåt"), "express boat");
+    }
+
+    #[test]
+    fn test_translate_common_place_words() {
+        assert_eq!(translate("kirke"), "church");
+        assert_eq!(translate("skole"), "school");
+        assert_eq!(translate("senter"), "center");
+        assert_eq!(translate("brygge"), "pier");
+        assert_eq!(translate("kai"), "quay");
+    }
+}
+
 fn translate_word(word: &str) -> String {
     let lower = word.to_lowercase();
     match DICTIONARY.get(lower.as_str()) {

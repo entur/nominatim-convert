@@ -38,3 +38,50 @@ pub fn county_ids_category(ref_: &str) -> String {
 pub fn locality_ids_category(ref_: &str) -> String {
     format!("{LOCALITY_ID_PREFIX}{}", as_category(ref_))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_as_category_replaces_colons() {
+        assert_eq!(as_category("NSR:StopPlace:123"), "NSR.StopPlace.123");
+    }
+
+    #[test]
+    fn test_as_category_no_colons() {
+        assert_eq!(as_category("something"), "something");
+    }
+
+    #[test]
+    fn test_tariff_zone_id_category() {
+        assert_eq!(
+            tariff_zone_id_category("RUT:TariffZone:1"),
+            "tariff_zone_id.RUT.TariffZone.1"
+        );
+    }
+
+    #[test]
+    fn test_fare_zone_authority_category() {
+        assert_eq!(
+            fare_zone_authority_category("RUT:Authority:RUT"),
+            "fare_zone_authority.RUT.Authority.RUT"
+        );
+    }
+
+    #[test]
+    fn test_county_ids_category() {
+        assert_eq!(
+            county_ids_category("KVE:TopographicPlace:03"),
+            "county_gid.KVE.TopographicPlace.03"
+        );
+    }
+
+    #[test]
+    fn test_locality_ids_category() {
+        assert_eq!(
+            locality_ids_category("KVE:TopographicPlace:0301"),
+            "locality_gid.KVE.TopographicPlace.0301"
+        );
+    }
+}

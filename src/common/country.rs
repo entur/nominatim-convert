@@ -276,3 +276,61 @@ impl Country {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_country_no() {
+        let c = Country::no();
+        assert_eq!(c.name, "no");
+        assert_eq!(c.three_letter_code, "NOR");
+    }
+
+    #[test]
+    fn test_parse_norway() {
+        let c = Country::parse(Some("no")).unwrap();
+        assert_eq!(c.name, "no");
+        assert_eq!(c.three_letter_code, "NOR");
+    }
+
+    #[test]
+    fn test_parse_uppercase() {
+        let c = Country::parse(Some("NO")).unwrap();
+        assert_eq!(c.name, "no");
+        assert_eq!(c.three_letter_code, "NOR");
+    }
+
+    #[test]
+    fn test_parse_sweden() {
+        let c = Country::parse(Some("se")).unwrap();
+        assert_eq!(c.name, "se");
+        assert_eq!(c.three_letter_code, "SWE");
+    }
+
+    #[test]
+    fn test_parse_none() {
+        assert!(Country::parse(None).is_none());
+    }
+
+    #[test]
+    fn test_parse_invalid() {
+        assert!(Country::parse(Some("xx")).is_none());
+    }
+
+    #[test]
+    fn test_parse_empty() {
+        assert!(Country::parse(Some("")).is_none());
+    }
+
+    #[test]
+    fn test_all_countries_have_two_letter_name() {
+        for (key, (name, three)) in COUNTRIES.iter() {
+            assert_eq!(key.len(), 2, "key '{key}' should be 2 chars");
+            assert_eq!(name.len(), 2, "name '{name}' should be 2 chars");
+            assert_eq!(three.len(), 3, "three_letter_code '{three}' should be 3 chars");
+            assert!(three.chars().all(|c| c.is_ascii_uppercase()), "three_letter_code '{three}' should be uppercase");
+        }
+    }
+}

@@ -117,3 +117,127 @@ pub struct Features {
     pub sorted_by_country: bool,
     pub has_addresslines: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_raw_number_6dp() {
+        let r = RawNumber::from_f64_6dp(0.252848);
+        assert_eq!(r.0, "0.252848");
+    }
+
+    #[test]
+    fn test_raw_number_6dp_rounds() {
+        let r = RawNumber::from_f64_6dp(0.1234567890);
+        assert_eq!(r.0, "0.123457");
+    }
+
+    #[test]
+    fn test_raw_number_6dp_trailing_zeros() {
+        let r = RawNumber::from_f64_6dp(1.0);
+        assert_eq!(r.0, "1.000000");
+    }
+
+    #[test]
+    fn test_raw_number_default() {
+        let r = RawNumber::from_f64(0.5);
+        assert_eq!(r.0, "0.5");
+    }
+
+    #[test]
+    fn test_raw_number_serializes_without_quotes() {
+        let r = RawNumber::from_f64_6dp(0.252848);
+        let json = serde_json::to_string(&r).unwrap();
+        assert_eq!(json, "0.252848");
+    }
+
+    #[test]
+    fn test_place_serialization_6dp_centroid() {
+        let place = NominatimPlace {
+            type_: "Place".to_string(),
+            content: vec![PlaceContent {
+                place_id: 400123,
+                object_type: "N".to_string(),
+                object_id: 123,
+                categories: vec!["source.nsr".to_string()],
+                rank_address: 30,
+                importance: RawNumber::from_f64_6dp(0.252848),
+                parent_place_id: None,
+                name: Some(Name {
+                    name: Some("Test".to_string()),
+                    name_en: None,
+                    alt_name: None,
+                }),
+                address: Address {
+                    street: None,
+                    city: Some("Oslo".to_string()),
+                    county: None,
+                },
+                housenumber: None,
+                postcode: Some("0001".to_string()),
+                country_code: Some("no".to_string()),
+                centroid: vec![10.752212, 59.913946],
+                bbox: vec![],
+                extra: Extra::default(),
+            }],
+        };
+        let json = serde_json::to_string(&place).unwrap();
+        // Verify centroid has 6 decimal places
+        assert!(json.contains("10.752212"));
+        assert!(json.contains("59.913946"));
+        // Verify importance is unquoted
+        assert!(json.contains("\"importance\":0.252848"));
+        // Verify bbox is omitted when empty
+        assert!(!json.contains("bbox"));
+    }
+
+    #[test]
+    fn test_place_serialization_optional_fields_omitted() {
+        let place = PlaceContent {
+            place_id: 100001,
+            object_type: "N".to_string(),
+            object_id: 1,
+            categories: vec![],
+            rank_address: 26,
+            importance: RawNumber::from_f64_6dp(0.230103),
+            parent_place_id: None,
+            name: None,
+            address: Address { street: None, city: None, county: None },
+            housenumber: None,
+            postcode: None,
+            country_code: None,
+            centroid: vec![10.0, 59.0],
+            bbox: vec![],
+            extra: Extra::default(),
+        };
+        let json = serde_json::to_string(&place).unwrap();
+        assert!(!json.contains("parent_place_id"));
+        assert!(!json.contains("\"name\""));
+        assert!(!json.contains("housenumber"));
+        assert!(!json.contains("postcode"));
+        assert!(!json.contains("country_code"));
+    }
+
+    #[test]
+    fn test_header_serialization() {
+        let header = NominatimHeader {
+            type_: "NominatimDumpFile".to_string(),
+            content: HeaderContent {
+                version: "0.1.0".to_string(),
+                generator: "geocoder".to_string(),
+                database_version: "0.3.6-1".to_string(),
+                data_timestamp: "2026-01-01T00:00:00+00:00".to_string(),
+                features: Features {
+                    sorted_by_country: true,
+                    has_addresslines: false,
+                },
+            },
+        };
+        let json = serde_json::to_string(&header).unwrap();
+        assert!(json.contains("\"type\":\"NominatimDumpFile\""));
+        assert!(json.contains("\"generator\":\"geocoder\""));
+        assert!(json.contains("\"sorted_by_country\":true"));
+    }
+}

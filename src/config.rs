@@ -93,6 +93,73 @@ pub struct ImportanceConfig {
     pub floor: f64,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_CONFIG: &str = r#"{
+        "osm": {
+            "defaultValue": 1.0,
+            "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+            "filters": [
+                {"key": "amenity", "value": "hospital", "priority": 9}
+            ]
+        },
+        "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+        "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+        "poi": { "importance": 0.5, "rankAddress": 30 },
+        "stopPlace": {
+            "defaultValue": 50,
+            "rankAddress": 30,
+            "stopTypeFactors": { "busStation": 2.0 },
+            "interchangeFactors": { "preferredInterchange": 10.0 }
+        },
+        "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+        "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+    }"#;
+
+    #[test]
+    fn test_config_deserializes() {
+        let config: Config = serde_json::from_str(TEST_CONFIG).unwrap();
+        assert_eq!(config.osm.default_value, 1.0);
+        assert_eq!(config.osm.rank_address.boundary, 10);
+        assert_eq!(config.osm.rank_address.poi, 30);
+        assert_eq!(config.osm.filters.len(), 1);
+        assert_eq!(config.osm.filters[0].key, "amenity");
+        assert_eq!(config.osm.filters[0].priority, 9);
+    }
+
+    #[test]
+    fn test_config_stop_place_factors() {
+        let config: Config = serde_json::from_str(TEST_CONFIG).unwrap();
+        assert_eq!(config.stop_place.default_value, 50);
+        assert_eq!(*config.stop_place.stop_type_factors.get("busStation").unwrap(), 2.0);
+        assert_eq!(*config.stop_place.interchange_factors.get("preferredInterchange").unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_config_importance() {
+        let config: Config = serde_json::from_str(TEST_CONFIG).unwrap();
+        assert_eq!(config.importance.min_popularity, 1.0);
+        assert_eq!(config.importance.max_popularity, 1_000_000_000.0);
+        assert_eq!(config.importance.floor, 0.1);
+    }
+
+    #[test]
+    fn test_config_matrikkel() {
+        let config: Config = serde_json::from_str(TEST_CONFIG).unwrap();
+        assert_eq!(config.matrikkel.address_popularity, 20.0);
+        assert_eq!(config.matrikkel.street_popularity, 20.0);
+        assert_eq!(config.matrikkel.rank_address, 26);
+    }
+
+    #[test]
+    fn test_config_load_missing_file() {
+        let result = Config::load(Some(Path::new("/nonexistent/config.json")));
+        assert!(result.is_err());
+    }
+}
+
 impl Config {
     pub fn load(path: Option<&Path>) -> Result<Self, Box<dyn std::error::Error>> {
         let path = path.unwrap_or_else(|| Path::new("converter.json"));

@@ -66,4 +66,54 @@ mod tests {
         let id = NominatimId::Gosp.create("NSR:GroupOfStopPlaces:1");
         assert_eq!(id, 4501627834738);
     }
+
+    #[test]
+    fn test_all_prefixes() {
+        assert_eq!(NominatimId::Address.create("1"), 1001);
+        assert_eq!(NominatimId::Street.create("1"), 2001);
+        assert_eq!(NominatimId::Stedsnavn.create("1"), 3001);
+        assert_eq!(NominatimId::StopPlace.create("1"), 4001);
+        assert_eq!(NominatimId::Gosp.create("1"), 4501);
+        assert_eq!(NominatimId::Osm.create("1"), 5001);
+        assert_eq!(NominatimId::Poi.create("1"), 6001);
+    }
+
+    #[test]
+    fn test_create_from_i64() {
+        assert_eq!(NominatimId::StopPlace.create_from_i64(42), 40042);
+        assert_eq!(NominatimId::Address.create_from_i64(123456), 100123456);
+    }
+
+    #[test]
+    fn test_negative_numeric_uses_abs() {
+        // Negative numbers should use absolute value
+        assert_eq!(NominatimId::Osm.create("-123"), 500123);
+    }
+
+    #[test]
+    fn test_hashcode_for_non_numeric() {
+        // Non-numeric strings use Java hashCode
+        let id1 = NominatimId::StopPlace.create("NSR:StopPlace:1");
+        let id2 = NominatimId::StopPlace.create("NSR:StopPlace:2");
+        assert_ne!(id1, id2);
+        // Both should start with prefix 400
+        assert!(id1.to_string().starts_with("400"));
+        assert!(id2.to_string().starts_with("400"));
+    }
+
+    #[test]
+    fn test_java_hashcode_known_values() {
+        // Verified against Java String.hashCode()
+        assert_eq!(java_string_hashcode("hello"), 99162322);
+        // "test" in Java: 't'*31^3 + 'e'*31^2 + 's'*31 + 't' = 3556498
+        assert_eq!(java_string_hashcode("test"), 3556498);
+    }
+
+    #[test]
+    fn test_java_hashcode_wrapping_arithmetic() {
+        // Long strings can cause i32 overflow, must use wrapping arithmetic
+        let hash = java_string_hashcode("this is a very long string that will overflow i32");
+        // Just verify it doesn't panic and produces a deterministic result
+        assert_eq!(hash, java_string_hashcode("this is a very long string that will overflow i32"));
+    }
 }

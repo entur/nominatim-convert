@@ -7,7 +7,8 @@ thread_local! {
     static UTM33_TO_WGS84: proj::Proj = proj::Proj::new(
         "+proj=pipeline \
          +step +inv +proj=utm +zone=33 +ellps=GRS80 \
-         +step +proj=longlat +datum=WGS84"
+         +step +proj=longlat +datum=WGS84 \
+         +step +proj=unitconvert +xy_in=rad +xy_out=deg"
     ).expect("Failed to create UTM33N -> WGS84 projection");
 }
 
@@ -52,5 +53,49 @@ mod tests {
         let coord = Coordinate::new(59.9139, 10.7522);
         let country = get_country(&coord);
         assert_eq!(country.unwrap().name, "no");
+    }
+
+    #[test]
+    fn test_stockholm_is_sweden() {
+        let coord = Coordinate::new(59.3293, 18.0686);
+        let country = get_country(&coord);
+        assert_eq!(country.unwrap().name, "se");
+    }
+
+    #[test]
+    fn test_ocean_returns_none() {
+        // Middle of the Atlantic
+        let coord = Coordinate::new(40.0, -30.0);
+        assert!(get_country(&coord).is_none());
+    }
+
+    #[test]
+    fn test_utm33_conversion_produces_degrees() {
+        // UTM33N central meridian is 15°E; easting=500000 is on the central meridian
+        let coord = convert_utm33_to_lat_lon(500000.0, 6500000.0);
+        // Should produce coordinates in degrees, not radians
+        assert!(coord.lat > 50.0 && coord.lat < 70.0,
+            "lat should be in degrees (50-70), got {}", coord.lat);
+        assert!((coord.lon - 15.0).abs() < 0.01,
+            "lon should be ~15° on central meridian, got {}", coord.lon);
+    }
+
+    #[test]
+    fn test_utm33_conversion_norway_range() {
+        // A point roughly in southern Norway
+        let coord = convert_utm33_to_lat_lon(262036.0, 6651208.0);
+        // Should be in Norway's latitude/longitude range
+        assert!(coord.lat > 57.0 && coord.lat < 72.0,
+            "lat {} should be in Norway range", coord.lat);
+        assert!(coord.lon > 4.0 && coord.lon < 32.0,
+            "lon {} should be in Norway range", coord.lon);
+    }
+
+    #[test]
+    fn test_utm33_deterministic() {
+        let c1 = convert_utm33_to_lat_lon(500000.0, 7000000.0);
+        let c2 = convert_utm33_to_lat_lon(500000.0, 7000000.0);
+        assert_eq!(c1.lat, c2.lat);
+        assert_eq!(c1.lon, c2.lon);
     }
 }
