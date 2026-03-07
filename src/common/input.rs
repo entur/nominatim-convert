@@ -54,9 +54,9 @@ fn make_temp_path(ext: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     if ext.is_empty() {
-        dir.join(format!("nominatim-convert-{id}-{ts}.tmp"))
+        dir.join(format!("nominatim-converter-{id}-{ts}.tmp"))
     } else {
-        dir.join(format!("nominatim-convert-{id}-{ts}.{ext}"))
+        dir.join(format!("nominatim-converter-{id}-{ts}.{ext}"))
     }
 }
 
@@ -196,7 +196,7 @@ mod tests {
     fn test_make_temp_path_with_extension() {
         let path = make_temp_path("csv");
         assert!(path.to_string_lossy().ends_with(".csv"));
-        assert!(path.to_string_lossy().contains("nominatim-convert-"));
+        assert!(path.to_string_lossy().contains("nominatim-converter-"));
     }
 
     #[test]

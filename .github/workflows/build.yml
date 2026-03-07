@@ -17,10 +17,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: nominatim-convert-linux-x86_64
+            artifact: nominatim-converter-linux-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: nominatim-convert-macos-aarch64
+            artifact: nominatim-converter-macos-aarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
 
       - name: Prepare artifact
         run: |
-          cp target/release/nominatim-convert ${{ matrix.artifact }}
+          cp target/release/nominatim-converter ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
       - name: Upload artifact
@@ -73,8 +73,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create ${{ github.ref_name }} \
-            nominatim-convert-linux-x86_64/nominatim-convert-linux-x86_64 \
-            nominatim-convert-macos-aarch64/nominatim-convert-macos-aarch64 \
+            nominatim-converter-linux-x86_64/nominatim-converter-linux-x86_64 \
+            nominatim-converter-macos-aarch64/nominatim-converter-macos-aarch64 \
             --repo ${{ github.repository }} \
-            --title "nominatim-convert ${{ github.ref_name }}" \
+            --title "nominatim-converter ${{ github.ref_name }}" \
             --generate-notes

@@ -587,8 +587,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nominatim-convert"
-version = "0.2.2"
+name = "nominatim-converter"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "clap",

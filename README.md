@@ -1,4 +1,4 @@
-# nominatim-convert
+# nominatim-converter
 
 A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-compatible NDJSON. This is a port of the Kotlin converter from [entur/geocoder](https://github.com/entur/geocoder), producing identical output.
 
@@ -20,7 +20,7 @@ Requires Rust 2024 edition (1.85+). PROJ is statically linked via `bundled_proj`
 cargo build --release
 ```
 
-The binary is at `target/release/nominatim-convert`.
+The binary is at `target/release/nominatim-converter`.
 
 ## Usage
 
@@ -28,22 +28,22 @@ All subcommands require a `converter.json` configuration file (see the Kotlin pr
 
 ```bash
 # StopPlace
-nominatim-convert stopplace -i stop_places.xml -o output.ndjson -c converter.json
+nominatim-converter stopplace -i stop_places.xml -o output.ndjson -c converter.json
 
 # Matrikkel (addresses + streets, needs stedsnavn GML for county lookup)
-nominatim-convert matrikkel -i adresse.csv -o output.ndjson -c converter.json -g stedsnavn.gml
+nominatim-converter matrikkel -i adresse.csv -o output.ndjson -c converter.json -g stedsnavn.gml
 
 # Matrikkel (without county data)
-nominatim-convert matrikkel -i adresse.csv -o output.ndjson -c converter.json --no-county
+nominatim-converter matrikkel -i adresse.csv -o output.ndjson -c converter.json --no-county
 
 # Stedsnavn
-nominatim-convert stedsnavn -i stedsnavn.gml -o output.ndjson -c converter.json
+nominatim-converter stedsnavn -i stedsnavn.gml -o output.ndjson -c converter.json
 
 # POI
-nominatim-convert poi -i poi.xml -o output.ndjson -c converter.json
+nominatim-converter poi -i poi.xml -o output.ndjson -c converter.json
 
 # OSM
-nominatim-convert osm -i planet.osm.pbf -o output.ndjson -c converter.json
+nominatim-converter osm -i planet.osm.pbf -o output.ndjson -c converter.json
 ```
 
 ### Common flags

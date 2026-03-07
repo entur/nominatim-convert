@@ -64,7 +64,7 @@ Use the comparison tool for validation:
 ```bash
 # Run both converters
 java -jar converter-all.jar stopplace -i input.xml -o /tmp/kotlin.ndjson -f
-./target/release/nominatim-convert stopplace -i input.xml -o /tmp/rust.ndjson -f -c converter.json
+./target/release/nominatim-converter stopplace -i input.xml -o /tmp/rust.ndjson -f -c converter.json
 
 # Compare with the reusable tool
 python3 compare-ndjson.py /tmp/kotlin.ndjson /tmp/rust.ndjson

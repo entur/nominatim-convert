@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Parser)]
-#[command(name = "nominatim-convert", about = "Convert geographic data to Nominatim NDJSON")]
+#[command(name = "nominatim-converter", about = "Convert geographic data to Nominatim NDJSON")]
 struct Cli {
     #[command(subcommand)]
     action: Action,
