@@ -12,6 +12,7 @@ use crate::target::nominatim_id::NominatimId;
 use crate::target::nominatim_place::*;
 use quick_xml::events::Event;
 use quick_xml::Reader;
+use std::io::BufReader;
 use std::path::Path;
 
 const TARGET_TYPES: &[&str] = &["by", "bydel", "tettsted", "tettsteddel", "tettbebyggelse"];
@@ -23,16 +24,30 @@ pub fn convert(
     output: &Path,
     is_appending: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let xml = std::fs::read_to_string(input)?;
-    let entries = parse_gml(&xml)?;
     let importance_calc = ImportanceCalculator::new(&config.importance);
+    let mut writer = JsonWriter::open(output, is_appending)?;
 
-    let nominatim_entries: Vec<NominatimPlace> = entries
-        .into_iter()
-        .map(|e| convert_to_nominatim(&e, config, &importance_calc))
-        .collect();
+    let file = std::fs::File::open(input)?;
+    let buf_reader = BufReader::new(file);
+    let mut reader = Reader::from_reader(buf_reader);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
 
-    JsonWriter::export(&nominatim_entries, output, is_appending)?;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) if e.name().as_ref() == b"featureMember" || e.name().as_ref() == b"gml:featureMember" => {
+                if let Some(entry) = parse_feature_member(&mut reader)? {
+                    let place = convert_to_nominatim(&entry, config, &importance_calc);
+                    writer.write_entry(&place)?;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(Box::new(e)),
+            _ => {}
+        }
+        buf.clear();
+    }
+
     Ok(())
 }
 
@@ -48,6 +63,7 @@ struct StedsnavnEntry {
     annen_skrivemaate: Vec<String>,
 }
 
+#[cfg(test)]
 fn parse_gml(xml: &str) -> Result<Vec<StedsnavnEntry>, Box<dyn std::error::Error>> {
     let mut entries = Vec::new();
     let mut reader = Reader::from_str(xml);
@@ -71,7 +87,7 @@ fn parse_gml(xml: &str) -> Result<Vec<StedsnavnEntry>, Box<dyn std::error::Error
     Ok(entries)
 }
 
-fn parse_feature_member(reader: &mut Reader<&[u8]>) -> Result<Option<StedsnavnEntry>, Box<dyn std::error::Error>> {
+fn parse_feature_member<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Option<StedsnavnEntry>, Box<dyn std::error::Error>> {
     let mut lokal_id: Option<String> = None;
     let mut navnerom: Option<String> = None;
     let mut stedsnavn: Option<String> = None;
@@ -84,6 +100,8 @@ fn parse_feature_member(reader: &mut Reader<&[u8]>) -> Result<Option<StedsnavnEn
     let mut coordinates: Vec<(f64, f64)> = Vec::new();
     let mut annen_skrivemaate: Vec<String> = Vec::new();
     let mut inside_annen = false;
+    let mut current_field: Option<&'static str> = None;
+    let mut text_buf = Vec::new();
 
     let mut buf = Vec::new();
     loop {
@@ -92,40 +110,56 @@ fn parse_feature_member(reader: &mut Reader<&[u8]>) -> Result<Option<StedsnavnEn
                 let qname = e.name();
                 let name = std::str::from_utf8(qname.as_ref()).unwrap_or("");
                 match name {
-                    "lokalId" | "app:lokalId" => lokal_id = Some(reader.read_text(e.name())?.into_owned()),
-                    "navnerom" | "app:navnerom" => navnerom = Some(reader.read_text(e.name())?.into_owned()),
-                    "komplettskrivemåte" | "app:komplettskrivemåte" => {
-                        let text = reader.read_text(e.name())?.into_owned();
-                        if inside_annen {
-                            annen_skrivemaate.push(text);
-                        } else if stedsnavn.is_none() {
-                            stedsnavn = Some(text);
-                        }
-                    }
-                    "navneobjekttype" | "app:navneobjekttype" => navneobjekttype = Some(reader.read_text(e.name())?.into_owned()),
-                    "skrivemåtestatus" | "app:skrivemåtestatus" => {
-                        let text = reader.read_text(e.name())?.into_owned();
-                        if !inside_annen && skrivemaatestatus.is_none() {
-                            skrivemaatestatus = Some(text);
-                        }
-                    }
-                    "kommunenummer" | "app:kommunenummer" => kommunenummer = Some(reader.read_text(e.name())?.into_owned()),
-                    "kommunenavn" | "app:kommunenavn" => kommunenavn = Some(reader.read_text(e.name())?.into_owned()),
-                    "fylkesnummer" | "app:fylkesnummer" => fylkesnummer = Some(reader.read_text(e.name())?.into_owned()),
-                    "fylkesnavn" | "app:fylkesnavn" => fylkesnavn = Some(reader.read_text(e.name())?.into_owned()),
+                    "lokalId" | "app:lokalId" => { current_field = Some("lokalId"); text_buf.clear(); }
+                    "navnerom" | "app:navnerom" => { current_field = Some("navnerom"); text_buf.clear(); }
+                    "komplettskrivemåte" | "app:komplettskrivemåte" => { current_field = Some("komplettskrivemåte"); text_buf.clear(); }
+                    "navneobjekttype" | "app:navneobjekttype" => { current_field = Some("navneobjekttype"); text_buf.clear(); }
+                    "skrivemåtestatus" | "app:skrivemåtestatus" => { current_field = Some("skrivemåtestatus"); text_buf.clear(); }
+                    "kommunenummer" | "app:kommunenummer" => { current_field = Some("kommunenummer"); text_buf.clear(); }
+                    "kommunenavn" | "app:kommunenavn" => { current_field = Some("kommunenavn"); text_buf.clear(); }
+                    "fylkesnummer" | "app:fylkesnummer" => { current_field = Some("fylkesnummer"); text_buf.clear(); }
+                    "fylkesnavn" | "app:fylkesnavn" => { current_field = Some("fylkesnavn"); text_buf.clear(); }
                     "annenSkrivemåte" | "app:annenSkrivemåte" => inside_annen = true,
-                    "posList" | "gml:posList" => {
-                        let text = reader.read_text(e.name())?.into_owned();
-                        parse_pos_list(&text, &mut coordinates);
-                    }
-                    "pos" | "gml:pos" => {
-                        let text = reader.read_text(e.name())?.into_owned();
-                        parse_pos(&text, &mut coordinates);
-                    }
+                    "posList" | "gml:posList" => { current_field = Some("posList"); text_buf.clear(); }
+                    "pos" | "gml:pos" => { current_field = Some("pos"); text_buf.clear(); }
                     _ => {}
                 }
             }
+            Ok(Event::Text(ref e)) => {
+                if current_field.is_some() {
+                    text_buf.extend_from_slice(e.as_ref());
+                }
+            }
             Ok(Event::End(ref e)) => {
+                if let Some(field) = current_field {
+                    let text = String::from_utf8_lossy(&text_buf).trim().to_string();
+                    match field {
+                        "lokalId" => lokal_id = Some(text),
+                        "navnerom" => navnerom = Some(text),
+                        "komplettskrivemåte" => {
+                            if inside_annen {
+                                annen_skrivemaate.push(text);
+                            } else if stedsnavn.is_none() {
+                                stedsnavn = Some(text);
+                            }
+                        }
+                        "navneobjekttype" => navneobjekttype = Some(text),
+                        "skrivemåtestatus" => {
+                            if !inside_annen && skrivemaatestatus.is_none() {
+                                skrivemaatestatus = Some(text);
+                            }
+                        }
+                        "kommunenummer" => kommunenummer = Some(text),
+                        "kommunenavn" => kommunenavn = Some(text),
+                        "fylkesnummer" => fylkesnummer = Some(text),
+                        "fylkesnavn" => fylkesnavn = Some(text),
+                        "posList" => parse_pos_list(&text, &mut coordinates),
+                        "pos" => parse_pos(&text, &mut coordinates),
+                        _ => {}
+                    }
+                    current_field = None;
+                }
+
                 let qname = e.name();
                 let name = std::str::from_utf8(qname.as_ref()).unwrap_or("");
                 match name {

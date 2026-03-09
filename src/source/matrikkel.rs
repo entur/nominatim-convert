@@ -30,16 +30,15 @@ pub fn convert(
 
     let all_addresses = parse_csv(input)?;
 
-    // Pass 1: addresses
-    let addresses: Vec<NominatimPlace> = all_addresses
-        .iter()
-        .map(|a| convert_address(a, config, &importance_calc, &kommune_mapping))
-        .collect();
-    JsonWriter::export(&addresses, output, is_appending)?;
-
-    // Pass 2: streets (grouped by adressenavn + kommunenummer)
+    // Pass 1: stream addresses to output
+    let mut writer = JsonWriter::open(output, is_appending)?;
     let mut street_groups: HashMap<(String, String), StreetAgg> = HashMap::new();
-    for addr in all_addresses.iter() {
+
+    for addr in &all_addresses {
+        let place = convert_address(addr, config, &importance_calc, &kommune_mapping);
+        writer.write_entry(&place)?;
+
+        // Simultaneously build street aggregation for Pass 2
         if let Some(name) = &addr.adressenavn {
             let key = (name.clone(), addr.kommunenummer.clone().unwrap_or_default());
             let agg = street_groups.entry(key).or_insert_with(|| StreetAgg {
@@ -52,14 +51,13 @@ pub fn convert(
         }
     }
 
-    let streets: Vec<NominatimPlace> = street_groups.values()
-        .map(|agg| {
-            let avg_ost = agg.sum_ost / agg.count as f64;
-            let avg_nord = agg.sum_nord / agg.count as f64;
-            convert_street(&agg.representative, avg_ost, avg_nord, config, &importance_calc, &kommune_mapping)
-        })
-        .collect();
-    JsonWriter::export(&streets, output, true)?;
+    // Pass 2: stream streets to output
+    for agg in street_groups.values() {
+        let avg_ost = agg.sum_ost / agg.count as f64;
+        let avg_nord = agg.sum_nord / agg.count as f64;
+        let place = convert_street(&agg.representative, avg_ost, avg_nord, config, &importance_calc, &kommune_mapping);
+        writer.write_entry(&place)?;
+    }
 
     Ok(())
 }
