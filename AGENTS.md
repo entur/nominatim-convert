@@ -33,7 +33,7 @@ UTM33 (EPSG:25833) → WGS84 conversions use the Rust `proj` crate, which produc
 
 ### OSM converter specifics
 
-The OSM converter (`src/source/osm.rs`) has several critical patterns for Kotlin compatibility:
+The OSM converter (`src/source/osm/`) has several critical patterns for Kotlin compatibility:
 
 - **PBF file order**: Entities must be processed in PBF file order, not HashMap iteration order. The pass 4 data structs use `ids: Vec<i64>` to preserve insertion order alongside `HashMap` lookups. Do not iterate over the HashMaps directly.
 - **BTreeMap for filtered tags**: `filter_tags()` returns `BTreeMap<&str, &str>` (sorted by key) to match Kotlin's `LinkedHashMap` ordering (which happens to be alphabetical for OSM tags). Using `HashMap` causes non-deterministic category ordering.
@@ -52,7 +52,13 @@ The OSM converter (`src/source/osm.rs`) has several critical patterns for Kotlin
 ## Project structure
 
 - `src/common/` — Shared types and utilities (coordinates, countries, categories, text formatting)
-- `src/source/` — One module per data source (stopplace, matrikkel, stedsnavn, poi, osm)
+- `src/source/` — One module per data source, each a thin facade (`name.rs`) with submodules (`name/`)
+  - `stopplace/` — NeTEx StopPlace (xml, convert, popularity)
+  - `matrikkel/` — Kartverket CSV addresses (parse, convert)
+  - `stedsnavn/` — SSR GML place names (gml, convert)
+  - `poi/` — NeTEx POI (xml, convert)
+  - `osm/` — OSM PBF 4-pass (passes, pass4, entity, admin, street, popularity, coordinate, geometry, indexing)
+- `src/source.rs` — Module declarations + shared test helpers (`test_config`, `test_data_path`)
 - `src/target/` — Output format (NDJSON schema, ID generation, JSON writer)
 - `src/config.rs` — `converter.json` deserialization
 - `data/` — Embedded binary data (country boundaries)
@@ -123,8 +129,8 @@ All source converters have unit tests (`cargo test --release` runs ~240 tests). 
 
 ### Test patterns
 
-- Each module uses a `test_config()` helper returning a full `Config` from inline JSON
-- `test_data_path(name)` resolves fixtures relative to `CARGO_MANIFEST_DIR`
+- Shared test helpers live in `src/source.rs` (`test_config()`, `test_config_with_osm_filters()`, `test_data_path()`) — all modules import from there
+- Stopplace-specific helpers (`make_stop_place`, etc.) live in `src/source/stopplace.rs` `tests::helpers`
 - Temp output files use unique suffixes per test to avoid parallel test conflicts
 - Integration tests (`tests/integration.rs`) run the binary as a black box via `std::process::Command`, testing all subcommands end-to-end
 - Module-level integration tests call the module's `convert()` function end-to-end, then parse the NDJSON output
