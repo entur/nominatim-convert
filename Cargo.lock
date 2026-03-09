@@ -477,6 +477,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "iso3166-macros"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "731b1db633b63cb5e90312b6ae8ad4821d54709285de1bbc6ec32fab64438525"
+dependencies = [
+ "heck",
+ "iso3166-parsers",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn",
+]
+
+[[package]]
+name = "iso3166-parsers"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754672b76089b19c687be1d743c32277d059566f469a8f549f28b8f900b64240"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "iso3166-static"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e2db16976004b25b80b54acefcb121b40bcdcd8eff142d74ea746d7620ebb23"
+dependencies = [
+ "iso3166-macros",
+ "serde",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -591,6 +625,7 @@ dependencies = [
  "chrono",
  "clap",
  "country-boundaries",
+ "iso3166-static",
  "osmpbf",
  "proj",
  "quick-xml",
