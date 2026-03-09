@@ -1,0 +1,245 @@
+<PublicationDelivery xmlns:ns2="http://www.opengis.net/gml/3.2">
+    <dataObjects>
+        <SiteFrame>
+            <topographicPlaces>
+                <TopographicPlace created="2024-01-01T01:52:48.304" modification="new" version="1" id="KVE:TopographicPlace:56">
+                    <ValidBetween>
+                        <FromDate>2024-01-01T01:00:00</FromDate>
+                    </ValidBetween>
+                    <ns2:Polygon ns2:id="GEN-PolygonType-133813">
+                        <ns2:exterior>
+                            <ns2:LinearRing>
+                                <ns2:posList>71.22860699685518 23.457607332726084</ns2:posList>
+                            </ns2:LinearRing>
+                        </ns2:exterior>
+                    </ns2:Polygon>
+                    <IsoCode>NO-56</IsoCode>
+                    <Descriptor>
+                        <Name lang="nor">Finnmark</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>county</TopographicPlaceType>
+                    <CountryRef ref="no"></CountryRef>
+                </TopographicPlace>
+                <TopographicPlace created="2024-01-01T01:52:48.304" modification="new" version="1" id="KVE:TopographicPlace:5610">
+                    <Descriptor>
+                        <Name lang="nor">Tana</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>municipality</TopographicPlaceType>
+                    <CountryRef ref="no"></CountryRef>
+                    <ParentTopographicPlaceRef ref="KVE:TopographicPlace:56"/>
+                </TopographicPlace>
+                <TopographicPlace created="2024-01-01T01:52:48.304" modification="new" version="1" id="KVE:TopographicPlace:5601">
+                    <Descriptor>
+                        <Name lang="nor">Alta</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>municipality</TopographicPlaceType>
+                    <CountryRef ref="no"></CountryRef>
+                    <ParentTopographicPlaceRef ref="KVE:TopographicPlace:56"/>
+                </TopographicPlace>
+                <TopographicPlace created="2024-01-01T01:52:48.304" modification="new" version="1" id="KVE:TopographicPlace:0301">
+                    <Descriptor>
+                        <Name lang="nor">Oslo</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>municipality</TopographicPlaceType>
+                    <CountryRef ref="no"></CountryRef>
+                    <ParentTopographicPlaceRef ref="KVE:TopographicPlace:03"/>
+                </TopographicPlace>
+                <TopographicPlace created="2024-01-01T01:52:48.304" modification="new" version="1" id="KVE:TopographicPlace:03">
+                    <Descriptor>
+                        <Name lang="nor">Oslo</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>county</TopographicPlaceType>
+                    <CountryRef ref="no"></CountryRef>
+                </TopographicPlace>
+            </topographicPlaces>
+            <groupsOfStopPlaces>
+                <GroupOfStopPlaces created="2018-04-13T21:45:04.407" changed="2025-07-04T11:50:07.392" modification="new" version="3" id="NSR:GroupOfStopPlaces:72">
+                    <Name lang="nor">Hammerfest</Name>
+                    <members>
+                        <StopPlaceRef ref="NSR:StopPlace:56851"/>
+                        <StopPlaceRef ref="NSR:StopPlace:56689"/>
+                        <StopPlaceRef ref="NSR:StopPlace:56676"/>
+                        <StopPlaceRef ref="NSR:StopPlace:59048"/>
+                    </members>
+                    <Centroid>
+                        <Location>
+                            <Longitude>23.682445</Longitude>
+                            <Latitude>70.663500</Latitude>
+                        </Location>
+                    </Centroid>
+                </GroupOfStopPlaces>
+                <GroupOfStopPlaces created="2018-03-08T12:22:54.29" changed="2024-10-25T13:37:21.831" modification="new" version="13" id="NSR:GroupOfStopPlaces:1">
+                    <Name lang="nor">Oslo</Name>
+                    <members>
+                        <StopPlaceRef ref="NSR:StopPlace:58366"/>
+                        <StopPlaceRef ref="NSR:StopPlace:59872"/>
+                        <StopPlaceRef ref="NSR:StopPlace:58293"/>
+                        <StopPlaceRef ref="NSR:StopPlace:58382"/>
+                    </members>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.748128</Longitude>
+                            <Latitude>59.911076</Latitude>
+                        </Location>
+                    </Centroid>
+                </GroupOfStopPlaces>
+            </groupsOfStopPlaces>
+            <stopPlaces>
+                <StopPlace created="2017-06-19T22:10:00.846" changed="2024-04-09T19:15:12.888" modification="new" version="2" id="NSR:StopPlace:56697">
+                    <Name lang="nor">Dorvonjárga</Name>
+                    <Description lang="nor"/>
+                    <Centroid>
+                        <Location>
+                            <Longitude>25.815626</Longitude>
+                            <Latitude>69.401136</Latitude>
+                        </Location>
+                    </Centroid>
+                    <alternativeNames>
+                        <AlternativeName modification="new" version="2" id="NSR:AlternativeName:1875">
+                            <NameType>translation</NameType>
+                            <Name lang="rus">Дорвоньярга</Name>
+                        </AlternativeName>
+                    </alternativeNames>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:5610" created="2025-05-13T12:07:30.216" version="1"/>
+                    <TransportMode>bus</TransportMode>
+                    <tariffZones>
+                        <TariffZoneRef ref="FIN:TariffZone:54540" version="2"/>
+                        <TariffZoneRef ref="FIN:FareZone:31" version="5"/>
+                    </tariffZones>
+                    <StopPlaceType>onstreetBus</StopPlaceType>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+                <StopPlace created="2017-06-19T22:10:01.791" changed="2024-04-09T19:15:15.549" modification="new" version="3" id="NSR:StopPlace:56769">
+                    <Name lang="nor">Haldenjarg</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>25.346690</Longitude>
+                            <Latitude>69.447444</Latitude>
+                        </Location>
+                    </Centroid>
+                    <alternativeNames>
+                        <AlternativeName modification="new" version="3" id="NSR:AlternativeName:1939">
+                            <NameType>translation</NameType>
+                            <Name lang="rus">Халденьярг</Name>
+                        </AlternativeName>
+                    </alternativeNames>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:5610" created="2025-05-13T12:07:30.887" version="1"/>
+                    <TransportMode>bus</TransportMode>
+                    <tariffZones>
+                        <TariffZoneRef ref="FIN:TariffZone:54540" version="2"/>
+                        <TariffZoneRef ref="FIN:FareZone:31" version="5"/>
+                    </tariffZones>
+                    <StopPlaceType>onstreetBus</StopPlaceType>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+                <StopPlace created="2024-06-25T19:34:26.032" changed="2024-06-25T19:34:26.032" modification="new" version="1" id="NSR:StopPlace:63329">
+                    <Name lang="nor">Mobakken</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>23.360630</Longitude>
+                            <Latitude>69.951138</Latitude>
+                        </Location>
+                    </Centroid>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:5601" created="2025-05-13T12:07:34.261" version="1"/>
+                    <TransportMode>bus</TransportMode>
+                    <BusSubmode>localBus</BusSubmode>
+                    <tariffZones>
+                        <TariffZoneRef ref="FIN:TariffZone:54500" version="2"/>
+                        <TariffZoneRef ref="TRO:TariffZone:54500" version="4"/>
+                        <TariffZoneRef ref="FIN:FareZone:26" version="5"/>
+                    </tariffZones>
+                    <StopPlaceType>onstreetBus</StopPlaceType>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+                <StopPlace created="2018-09-05T14:32:54.19" changed="2024-01-01T02:43:19.34" modification="new" version="3" id="NSR:StopPlace:59649">
+                    <Name lang="nor">Nydalen stasjon</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.771837</Longitude>
+                            <Latitude>59.951841</Latitude>
+                        </Location>
+                    </Centroid>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:0301" created="2025-05-13T12:00:13.849" version="13"/>
+                    <tariffZones>
+                        <TariffZoneRef ref="RUT:FareZone:4" version="8"/>
+                        <TariffZoneRef ref="RUT:TariffZone:1" version="9"/>
+                    </tariffZones>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+                <StopPlace created="2017-06-19T21:12:46.288" changed="2024-02-05T19:56:03.859" modification="new" version="14" id="NSR:StopPlace:305">
+                    <Name lang="nor">Nyland stasjon</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.871645</Longitude>
+                            <Latitude>59.943941</Latitude>
+                        </Location>
+                    </Centroid>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:0301" created="2025-05-13T12:00:13.871" version="13"/>
+                    <ParentSiteRef ref="NSR:StopPlace:59650" version="7"/>
+                    <TransportMode>rail</TransportMode>
+                    <tariffZones>
+                        <TariffZoneRef ref="RUT:FareZone:4" version="8"/>
+                        <TariffZoneRef ref="RUT:TariffZone:1" version="9"/>
+                    </tariffZones>
+                    <StopPlaceType>railStation</StopPlaceType>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+                <StopPlace created="2018-04-13T17:16:50.111" changed="2024-04-09T19:15:23.929" modification="new" version="6" id="NSR:StopPlace:59291">
+                    <Name lang="nor">Alta lufthavn</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>23.346945</Longitude>
+                            <Latitude>69.977739</Latitude>
+                        </Location>
+                    </Centroid>
+                    <alternativeNames>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2907">
+                            <NameType>translation</NameType>
+                            <Name lang="eng">Alta Airport</Name>
+                        </AlternativeName>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2908">
+                            <NameType>translation</NameType>
+                            <Name lang="fra">Aéroport d'Alta</Name>
+                        </AlternativeName>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2909">
+                            <NameType>translation</NameType>
+                            <Name lang="rus">Аэропорт Альта</Name>
+                        </AlternativeName>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2910">
+                            <NameType>translation</NameType>
+                            <Name lang="fin">Altan lentokenttä</Name>
+                        </AlternativeName>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2911">
+                            <NameType>translation</NameType>
+                            <Name lang="est">Alta lennuväljak</Name>
+                        </AlternativeName>
+                        <AlternativeName modification="new" version="1" id="NSR:AlternativeName:2912">
+                            <NameType>label</NameType>
+                            <Name lang="nor">Alta flyplass</Name>
+                        </AlternativeName>
+                    </alternativeNames>
+                    <TopographicPlaceRef ref="KVE:TopographicPlace:5601" created="2025-05-13T12:07:31.814" version="1"/>
+                    <tariffZones>
+                        <TariffZoneRef ref="FIN:TariffZone:54500" version="2"/>
+                        <TariffZoneRef ref="TRO:TariffZone:54500" version="4"/>
+                        <TariffZoneRef ref="FIN:FareZone:26" version="5"/>
+                    </tariffZones>
+                    <Weighting>interchangeAllowed</Weighting>
+                </StopPlace>
+            </stopPlaces>
+        </SiteFrame>
+        <FareFrame modification="new" version="1" id="NSR:FareFrame:1590165423">
+            <fareZones>
+                <FareZone changed="2025-01-22T20:53:20.134" modification="new" version="5" id="FIN:FareZone:31">
+                    <AuthorityRef ref="FIN:Authority:FIN_ID"/>
+                </FareZone>
+                <FareZone changed="2025-01-22T20:53:20.134" modification="new" version="5" id="FIN:FareZone:26">
+                    <AuthorityRef ref="FIN:Authority:FIN_ID"/>
+                </FareZone>
+                <FareZone changed="2025-01-22T20:53:20.134" modification="new" version="8" id="RUT:FareZone:4">
+                    <AuthorityRef ref="RUT:Authority:RUT_ID"/>
+                </FareZone>
+            </fareZones>
+        </FareFrame>
+    </dataObjects>
+</PublicationDelivery>

@@ -373,3 +373,178 @@ fn build_kommune_mapping(gml_path: &Path) -> Result<HashMap<String, KommuneInfo>
 
     Ok(mapping)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_config() -> Config {
+        serde_json::from_str(r#"{
+            "osm": {
+                "defaultValue": 1.0,
+                "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+                "filters": []
+            },
+            "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+            "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+            "poi": { "importance": 0.5, "rankAddress": 30 },
+            "stopPlace": {
+                "defaultValue": 50, "rankAddress": 30,
+                "stopTypeFactors": {}, "interchangeFactors": {}
+            },
+            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+        }"#).unwrap()
+    }
+
+    fn test_data_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(name)
+    }
+
+    fn convert_and_read(suffix: &str, stedsnavn_gml: Option<&Path>) -> Vec<String> {
+        let config = test_config();
+        let input = test_data_path("Basisdata_3420_Elverum_25833_MatrikkelenAdresse.csv");
+        let output = std::env::temp_dir().join(format!("test_matrikkel_{suffix}.ndjson"));
+        convert(&config, &input, &output, false, stedsnavn_gml).unwrap();
+        let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
+            .lines().map(String::from).collect();
+        let _ = std::fs::remove_file(&output);
+        lines
+    }
+
+    fn find_place_line<'a>(lines: &'a [String], id: &str) -> Option<&'a String> {
+        lines.iter().find(|l| l.contains(&format!("\"{id}\"")))
+    }
+
+    #[test]
+    fn converts_csv_to_nominatim_json() {
+        let lines = convert_and_read("basic", None);
+        assert!(lines.len() > 1);
+
+        let target = find_place_line(&lines, "225678815").expect("Should find address 225678815");
+        let place: serde_json::Value = serde_json::from_str(target).unwrap();
+        let content = &place["content"][0];
+        let extra = &content["extra"];
+
+        assert_eq!(extra["id"].as_str().unwrap(), "225678815");
+        assert_eq!(extra["source"].as_str().unwrap(), "kartverket-matrikkelenadresse");
+        assert_eq!(extra["accuracy"].as_str().unwrap(), "point");
+        assert_eq!(extra["country_a"].as_str().unwrap(), "NOR");
+        assert_eq!(extra["locality"].as_str().unwrap(), "Elverum");
+        assert_eq!(extra["locality_gid"].as_str().unwrap(), "KVE:TopographicPlace:3420");
+        assert_eq!(extra["borough"].as_str().unwrap(), "Grindalsmoen");
+        assert_eq!(extra["borough_gid"].as_str().unwrap(), "borough:34200205");
+
+        assert_eq!(content["housenumber"].as_str().unwrap(), "1A");
+        assert_eq!(content["address"]["street"].as_str().unwrap(), "Ildervegen");
+        assert_eq!(content["postcode"].as_str().unwrap(), "2406");
+        assert!(content["name"].is_null(), "Name should be null for addresses");
+
+        let centroid = content["centroid"].as_array().unwrap();
+        assert_eq!(centroid.len(), 2);
+        // UTM33 (311612.78, 6755767.45) should convert to approx (11.527, 60.892)
+        let lon = centroid[0].as_f64().unwrap();
+        let lat = centroid[1].as_f64().unwrap();
+        assert!((lon - 11.527).abs() < 0.01, "lon: {lon}");
+        assert!((lat - 60.892).abs() < 0.01, "lat: {lat}");
+    }
+
+    #[test]
+    fn county_populated_when_stedsnavn_gml_provided() {
+        let gml = test_data_path("Basisdata_3420_Elverum_25833_Stedsnavn_GML.gml");
+        let lines = convert_and_read("with_county", Some(&gml));
+
+        let target = find_place_line(&lines, "225678815").expect("Should find address 225678815");
+        let place: serde_json::Value = serde_json::from_str(target).unwrap();
+        let county = place["content"][0]["address"]["county"].as_str();
+        assert_eq!(county, Some("Innlandet"), "County should be Innlandet for Elverum");
+    }
+
+    #[test]
+    fn generates_both_address_and_street_entries() {
+        let lines = convert_and_read("both", None);
+        let address_entries: Vec<&String> = lines.iter()
+            .filter(|l| l.contains("osm.public_transport.address")).collect();
+        let street_entries: Vec<&String> = lines.iter()
+            .filter(|l| l.contains("osm.public_transport.street")).collect();
+        assert!(!address_entries.is_empty(), "Should have address entries");
+        assert!(!street_entries.is_empty(), "Should have street entries");
+    }
+
+    #[test]
+    fn streets_have_ildervegen() {
+        let lines = convert_and_read("streets", None);
+        let entries_with_ildervegen: Vec<&String> = lines.iter()
+            .filter(|l| l.contains("Ildervegen")).collect();
+        assert!(!entries_with_ildervegen.is_empty());
+    }
+
+    #[test]
+    fn address_entries_have_correct_categories() {
+        let lines = convert_and_read("cats", None);
+        let target = find_place_line(&lines, "225678815").unwrap();
+        let place: serde_json::Value = serde_json::from_str(target).unwrap();
+        let cats: Vec<String> = place["content"][0]["categories"].as_array().unwrap()
+            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        assert!(cats.iter().any(|c| c.contains("address")));
+        assert!(cats.iter().any(|c| c.contains("source.kartverket.matrikkelenadresse")));
+    }
+
+    #[test]
+    fn all_entries_have_valid_categories() {
+        let lines = convert_and_read("allcats", None);
+        for line in lines.iter().filter(|l| l.contains("\"Place\"")) {
+            let place: serde_json::Value = serde_json::from_str(line).unwrap();
+            let cats = place["content"][0]["categories"].as_array().unwrap();
+            assert!(!cats.is_empty());
+        }
+    }
+
+    #[test]
+    fn all_addresses_have_valid_coordinates() {
+        let lines = convert_and_read("coords", None);
+        for line in lines.iter().filter(|l| l.contains("\"Place\"")) {
+            let place: serde_json::Value = serde_json::from_str(line).unwrap();
+            let centroid = place["content"][0]["centroid"].as_array().unwrap();
+            assert_eq!(centroid.len(), 2);
+            let lon = centroid[0].as_f64().unwrap();
+            let lat = centroid[1].as_f64().unwrap();
+            assert!((-180.0..=180.0).contains(&lon), "Invalid lon: {lon}");
+            assert!((-90.0..=90.0).contains(&lat), "Invalid lat: {lat}");
+        }
+    }
+
+    #[test]
+    fn addresses_have_proper_importance_values() {
+        let lines = convert_and_read("imp", None);
+        for line in lines.iter().filter(|l| l.contains("\"Place\"")) {
+            let place: serde_json::Value = serde_json::from_str(line).unwrap();
+            let imp = place["content"][0]["importance"].as_f64().unwrap();
+            assert!(imp > 0.0, "Importance should be positive");
+            assert!(imp <= 1.0, "Importance should not exceed 1.0");
+        }
+    }
+
+    #[test]
+    fn addresses_with_letters_have_combined_housenumber() {
+        let lines = convert_and_read("hn", None);
+        let target = find_place_line(&lines, "225678815").unwrap();
+        let place: serde_json::Value = serde_json::from_str(target).unwrap();
+        assert_eq!(place["content"][0]["housenumber"].as_str().unwrap(), "1A");
+    }
+
+    #[test]
+    fn addresses_have_county_gid_in_categories() {
+        let gml = test_data_path("Basisdata_3420_Elverum_25833_Stedsnavn_GML.gml");
+        let lines = convert_and_read("gid", Some(&gml));
+        assert!(lines.iter().any(|l| l.contains("county_gid.KVE.TopographicPlace.")));
+    }
+
+    #[test]
+    fn matrikkel_popularity_returns_expected_values() {
+        let config = test_config();
+        assert_eq!(config.matrikkel.address_popularity, 20.0);
+        assert_eq!(config.matrikkel.street_popularity, 20.0);
+    }
+}

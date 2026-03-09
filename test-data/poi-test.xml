@@ -1,0 +1,91 @@
+<?xml version='1.0' encoding='utf-8'?>
+<PublicationDelivery xmlns="http://www.netex.org.uk/netex" version="1.5">
+    <PublicationTimestamp>2025-01-01T00:00:00</PublicationTimestamp>
+    <ParticipantRef>TEST</ParticipantRef>
+    <dataObjects>
+        <SiteFrame version="1" id="TEST:SiteFrame:1">
+            <topographicPlaces>
+                <TopographicPlace id="TEST:TopographicPlace:1" version="1">
+                    <ValidBetween>
+                        <FromDate>2020-01-01T00:00:00</FromDate>
+                        <ToDate>2099-12-31T23:59:59</ToDate>
+                    </ValidBetween>
+                    <Name>Test Festival Oslo</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.75</Longitude>
+                            <Latitude>59.91</Latitude>
+                        </Location>
+                    </Centroid>
+                    <Descriptor>
+                        <Name>Test Festival Oslo</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>placeOfInterest</TopographicPlaceType>
+                </TopographicPlace>
+                <TopographicPlace id="TEST:TopographicPlace:2" version="1">
+                    <ValidBetween>
+                        <FromDate>2020-01-01T00:00:00</FromDate>
+                        <ToDate>2020-12-31T23:59:59</ToDate>
+                    </ValidBetween>
+                    <Name>Expired Event</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.40</Longitude>
+                            <Latitude>63.43</Latitude>
+                        </Location>
+                    </Centroid>
+                    <Descriptor>
+                        <Name>Expired Event</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>placeOfInterest</TopographicPlaceType>
+                </TopographicPlace>
+                <TopographicPlace id="TEST:TopographicPlace:3" version="1">
+                    <ValidBetween>
+                        <FromDate>2099-01-01T00:00:00</FromDate>
+                        <ToDate>2099-12-31T23:59:59</ToDate>
+                    </ValidBetween>
+                    <Name>Future Event</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>5.73</Longitude>
+                            <Latitude>58.97</Latitude>
+                        </Location>
+                    </Centroid>
+                    <Descriptor>
+                        <Name>Future Event</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>placeOfInterest</TopographicPlaceType>
+                </TopographicPlace>
+                <TopographicPlace id="TEST:TopographicPlace:4" version="1">
+                    <Name>Always Valid POI</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>8.0</Longitude>
+                            <Latitude>58.15</Latitude>
+                        </Location>
+                    </Centroid>
+                    <Descriptor>
+                        <Name>Always Valid POI</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>placeOfInterest</TopographicPlaceType>
+                </TopographicPlace>
+                <TopographicPlace id="TEST:TopographicPlace:5" version="1">
+                    <ValidBetween>
+                        <FromDate>2020-01-01T00:00:00</FromDate>
+                    </ValidBetween>
+                    <Name>Open-ended Event</Name>
+                    <Centroid>
+                        <Location>
+                            <Longitude>10.39</Longitude>
+                            <Latitude>63.43</Latitude>
+                        </Location>
+                    </Centroid>
+                    <Descriptor>
+                        <Name>Open-ended Event</Name>
+                    </Descriptor>
+                    <TopographicPlaceType>placeOfInterest</TopographicPlaceType>
+                </TopographicPlace>
+            </topographicPlaces>
+        </SiteFrame>
+    </dataObjects>
+</PublicationDelivery>

@@ -259,3 +259,295 @@ fn convert_to_nominatim(entry: &StedsnavnEntry, config: &Config, importance_calc
         }],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_config() -> Config {
+        serde_json::from_str(r#"{
+            "osm": {
+                "defaultValue": 1.0,
+                "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+                "filters": []
+            },
+            "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+            "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+            "poi": { "importance": 0.5, "rankAddress": 30 },
+            "stopPlace": {
+                "defaultValue": 50, "rankAddress": 30,
+                "stopTypeFactors": {}, "interchangeFactors": {}
+            },
+            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+        }"#).unwrap()
+    }
+
+    fn test_data_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(name)
+    }
+
+    // ===== Place type tests =====
+
+    #[test]
+    fn target_types_recognized() {
+        for t in &["by", "bydel", "tettsted", "tettsteddel", "tettbebyggelse"] {
+            assert!(TARGET_TYPES.contains(t), "Should recognize {t}");
+        }
+    }
+
+    #[test]
+    fn non_target_types_rejected() {
+        for t in &["grend", "fylke", "kommune"] {
+            assert!(!TARGET_TYPES.contains(t), "Should reject {t}");
+        }
+    }
+
+    #[test]
+    fn exactly_5_target_types() {
+        assert_eq!(TARGET_TYPES.len(), 5);
+    }
+
+    // ===== Spelling status tests =====
+
+    #[test]
+    fn accepted_statuses_recognized() {
+        for s in &["vedtatt", "godkjent", "privat", "samlevedtak"] {
+            assert!(ACCEPTED_STATUS.contains(s), "Should accept {s}");
+        }
+    }
+
+    #[test]
+    fn rejected_statuses() {
+        for s in &["uvurdert", "avslått", "foreslått", "klage", "historisk"] {
+            assert!(!ACCEPTED_STATUS.contains(s), "Should reject {s}");
+        }
+    }
+
+    #[test]
+    fn exactly_4_accepted_statuses() {
+        assert_eq!(ACCEPTED_STATUS.len(), 4);
+    }
+
+    // ===== GML parsing tests (bydel.gml) =====
+
+    #[test]
+    fn bydel_finds_stedsnavn_despite_historisk_alt_spelling() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn bydel_converts_with_grunerloekka_name() {
+        let config = test_config();
+        let input = test_data_path("bydel.gml");
+        let output = std::env::temp_dir().join("test_bydel_output.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("Grünerløkka"));
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 3); // header + 2 entries
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn bydel_alt_name_populated_for_entry_with_annen_skrivemaate() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        let entry_with_alt = entries.iter().find(|e| !e.annen_skrivemaate.is_empty());
+        assert!(entry_with_alt.is_some(), "Should have entry with annenSkrivemåte");
+        let place = convert_to_nominatim(entry_with_alt.unwrap(), &config, &importance_calc);
+        let alt_name = place.content[0].name.as_ref().unwrap().alt_name.as_ref();
+        assert!(alt_name.is_some(), "alt_name should be populated");
+    }
+
+    // ===== Conversion field tests =====
+
+    #[test]
+    fn converted_entries_have_correct_source() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert_eq!(place.content[0].extra.source.as_deref(), Some("kartverket-stedsnavn"));
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_point_accuracy() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert_eq!(place.content[0].extra.accuracy.as_deref(), Some("point"));
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_country_code_no() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert_eq!(place.content[0].country_code.as_deref(), Some("no"));
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_object_type_n() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert_eq!(place.content[0].object_type, "N");
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_valid_importance() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            let imp: f64 = place.content[0].importance.0.parse().unwrap();
+            assert!(imp > 0.0 && imp <= 1.0);
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_valid_rank_address() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert!(place.content[0].rank_address <= 20);
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_locality_and_county_gid() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            let extra = &place.content[0].extra;
+            let expected_locality = format!("KVE:TopographicPlace:{}", entry.kommunenummer);
+            assert_eq!(extra.locality_gid.as_deref(), Some(expected_locality.as_str()));
+            let expected_county = format!("KVE:TopographicPlace:{}", entry.fylkesnummer);
+            assert_eq!(extra.county_gid.as_deref(), Some(expected_county.as_str()));
+        }
+    }
+
+    #[test]
+    fn converted_entries_have_coordinates_in_valid_range() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            let centroid = &place.content[0].centroid;
+            assert_eq!(centroid.len(), 2);
+            let lon: f64 = centroid[0].to_string().parse().unwrap();
+            let lat: f64 = centroid[1].to_string().parse().unwrap();
+            assert!(lon > 0.0 && lon < 20.0, "Norwegian lon: {lon}");
+            assert!(lat > 58.0 && lat < 72.0, "Norwegian lat: {lat}");
+        }
+    }
+
+    #[test]
+    fn output_has_county_gid_and_locality_gid_in_categories() {
+        let config = test_config();
+        let input = test_data_path("bydel.gml");
+        let output = std::env::temp_dir().join("test_stedsnavn_gid.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
+            .lines().skip(1).map(String::from).collect();
+        assert!(lines.iter().any(|l| l.contains("county_gid.KVE") && l.contains("locality_gid.KVE")));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn city_names_are_titleized() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            if let Some(city) = &place.content[0].address.city {
+                let first = city.chars().next().unwrap();
+                assert!(first.is_uppercase() || !first.is_alphabetic(), "City should be titleized: {city}");
+            }
+        }
+    }
+
+    #[test]
+    fn output_header_present() {
+        let config = test_config();
+        let input = test_data_path("bydel.gml");
+        let output = std::env::temp_dir().join("test_stedsnavn_header.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let first_line = std::fs::read_to_string(&output).unwrap().lines().next().unwrap().to_string();
+        assert!(first_line.contains("NominatimDumpFile"));
+        assert!(first_line.contains("version"));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn parsed_entries_have_all_required_fields() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        for entry in &entries {
+            assert!(!entry.lokal_id.is_empty());
+            assert!(!entry.stedsnavn.is_empty());
+            assert!(!entry.navneobjekttype.is_empty());
+            assert!(!entry.kommunenummer.is_empty());
+            assert!(!entry.kommunenavn.is_empty());
+            assert!(!entry.fylkesnummer.is_empty());
+            assert!(!entry.fylkesnavn.is_empty());
+            assert!(!entry.coordinates.is_empty());
+        }
+    }
+
+    #[test]
+    fn legacy_category_present() {
+        let xml = std::fs::read_to_string(test_data_path("bydel.gml")).unwrap();
+        let entries = parse_gml(&xml).unwrap();
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+
+        for entry in &entries {
+            let place = convert_to_nominatim(entry, &config, &importance_calc);
+            assert!(place.content[0].categories.iter().any(|c| c.starts_with(LEGACY_CATEGORY_PREFIX)));
+        }
+    }
+}

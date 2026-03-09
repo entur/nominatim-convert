@@ -153,3 +153,134 @@ fn convert_topo_place(config: &Config, tp: &TopographicPlaceXml) -> Option<Nomin
         }],
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_config() -> Config {
+        serde_json::from_str(r#"{
+            "osm": {
+                "defaultValue": 1.0,
+                "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+                "filters": []
+            },
+            "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+            "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+            "poi": { "importance": 0.5, "rankAddress": 30 },
+            "stopPlace": {
+                "defaultValue": 50,
+                "rankAddress": 30,
+                "stopTypeFactors": {},
+                "interchangeFactors": {}
+            },
+            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+        }"#).unwrap()
+    }
+
+    fn test_data_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(name)
+    }
+
+    fn convert_test_file(suffix: &str) -> Vec<String> {
+        let config = test_config();
+        let input = test_data_path("poi-test.xml");
+        let output = std::env::temp_dir().join(format!("test_poi_{suffix}.ndjson"));
+        convert(&config, &input, &output, false).unwrap();
+        let lines: Vec<String> = std::fs::read_to_string(&output).unwrap()
+            .lines().map(String::from).collect();
+        let _ = std::fs::remove_file(&output);
+        lines
+    }
+
+    #[test]
+    fn converts_valid_pois_and_filters_expired_and_future() {
+        let lines = convert_test_file("filter");
+        let data_lines: Vec<&String> = lines.iter().skip(1).collect(); // skip header
+        // Should include: valid (1), always-valid (4), open-ended (5)
+        // Should exclude: expired (2), future (3)
+        assert_eq!(data_lines.len(), 3);
+        assert!(lines.iter().any(|l| l.contains("TEST:TopographicPlace:1")));
+        assert!(!lines.iter().any(|l| l.contains("TEST:TopographicPlace:2")));
+        assert!(!lines.iter().any(|l| l.contains("TEST:TopographicPlace:3")));
+        assert!(lines.iter().any(|l| l.contains("TEST:TopographicPlace:4")));
+        assert!(lines.iter().any(|l| l.contains("TEST:TopographicPlace:5")));
+    }
+
+    #[test]
+    fn poi_has_correct_coordinates_and_categories() {
+        let lines = convert_test_file("coords");
+        let poi1 = lines.iter().find(|l| l.contains("TEST:TopographicPlace:1")).unwrap();
+        assert!(poi1.contains("10.75"));
+        assert!(poi1.contains("59.91"));
+        assert!(poi1.contains(OSM_CUSTOM_POI));
+        assert!(poi1.contains("custom-poi"));
+    }
+
+    #[test]
+    fn poi_output_contains_coordinates() {
+        let lines = convert_test_file("rawcoords");
+        let content = lines.join("\n");
+        assert!(content.contains("10.75"));
+        assert!(content.contains("59.91"));
+    }
+
+    #[test]
+    fn is_valid_accepts_no_validity_period() {
+        let now = Local::now().naive_local();
+        let tp = TopographicPlaceXml {
+            id: Some("test".to_string()),
+            valid_between: None,
+            descriptor: None,
+            centroid: None,
+        };
+        assert!(is_valid(&tp, &now));
+    }
+
+    #[test]
+    fn is_valid_rejects_expired() {
+        let now = Local::now().naive_local();
+        let tp = TopographicPlaceXml {
+            id: Some("test".to_string()),
+            valid_between: Some(ValidBetweenXml {
+                from_date: Some("2020-01-01T00:00:00".to_string()),
+                to_date: Some("2020-12-31T23:59:59".to_string()),
+            }),
+            descriptor: None,
+            centroid: None,
+        };
+        assert!(!is_valid(&tp, &now));
+    }
+
+    #[test]
+    fn is_valid_rejects_future() {
+        let now = Local::now().naive_local();
+        let tp = TopographicPlaceXml {
+            id: Some("test".to_string()),
+            valid_between: Some(ValidBetweenXml {
+                from_date: Some("2099-01-01T00:00:00".to_string()),
+                to_date: Some("2099-12-31T23:59:59".to_string()),
+            }),
+            descriptor: None,
+            centroid: None,
+        };
+        assert!(!is_valid(&tp, &now));
+    }
+
+    #[test]
+    fn is_valid_accepts_open_ended() {
+        let now = Local::now().naive_local();
+        let tp = TopographicPlaceXml {
+            id: Some("test".to_string()),
+            valid_between: Some(ValidBetweenXml {
+                from_date: Some("2020-01-01T00:00:00".to_string()),
+                to_date: None,
+            }),
+            descriptor: None,
+            centroid: None,
+        };
+        assert!(is_valid(&tp, &now));
+    }
+}

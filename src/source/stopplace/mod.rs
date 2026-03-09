@@ -724,3 +724,505 @@ fn collect_transport_modes(sp: &StopPlaceXml, child_stops: &[&StopPlaceXml]) -> 
     dedup_preserve_order(&mut all);
     if all.is_empty() { None } else { Some(all.join(OSM_TAG_SEPARATOR)) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use std::path::PathBuf;
+
+    fn test_config() -> Config {
+        serde_json::from_str(r#"{
+            "osm": {
+                "defaultValue": 1.0,
+                "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+                "filters": [{"key": "amenity", "value": "hospital", "priority": 9}]
+            },
+            "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+            "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+            "poi": { "importance": 0.5, "rankAddress": 30 },
+            "stopPlace": {
+                "defaultValue": 50,
+                "rankAddress": 30,
+                "stopTypeFactors": { "busStation": 2.0, "metroStation": 2.0, "railStation": 2.0 },
+                "interchangeFactors": { "recommendedInterchange": 3.0, "preferredInterchange": 10.0 }
+            },
+            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+        }"#).unwrap()
+    }
+
+    fn test_data_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data").join(name)
+    }
+
+    fn make_stop_place(id: &str, name: &str, transport_mode: Option<&str>, stop_place_type: Option<&str>) -> StopPlaceXml {
+        StopPlaceXml {
+            id: id.to_string(),
+            name: Some(name.to_string()),
+            description: None,
+            centroid: Some(CentroidXml { location: LocationXml { longitude: 10.0, latitude: 60.0 } }),
+            transport_mode: transport_mode.map(|s| s.to_string()),
+            bus_submode: None, tram_submode: None, rail_submode: None,
+            metro_submode: None, air_submode: None, water_submode: None, telecabin_submode: None,
+            stop_place_type: stop_place_type.map(|s| s.to_string()),
+            weighting: None,
+            topographic_place_ref: None,
+            parent_site_ref: None,
+            alternative_names: None,
+            tariff_zones: None,
+        }
+    }
+
+    fn make_stop_place_with_submode(id: &str, transport_mode: &str, bus_sub: Option<&str>, rail_sub: Option<&str>, tram_sub: Option<&str>) -> StopPlaceXml {
+        let mut sp = make_stop_place(id, "Test Stop", Some(transport_mode), None);
+        sp.bus_submode = bus_sub.map(|s| s.to_string());
+        sp.rail_submode = rail_sub.map(|s| s.to_string());
+        sp.tram_submode = tram_sub.map(|s| s.to_string());
+        sp
+    }
+
+    fn make_stop_place_with_alt_names(id: &str, name: &str, alt_names: Vec<(&str, Option<&str>)>) -> StopPlaceXml {
+        let mut sp = make_stop_place(id, name, None, None);
+        sp.alternative_names = Some(AlternativeNamesXml {
+            names: alt_names.into_iter().map(|(n, nt)| AlternativeNameXml {
+                name_type: nt.map(|s| s.to_string()),
+                name: Some(n.to_string()),
+            }).collect(),
+        });
+        sp
+    }
+
+    // ===== NetEx parsing tests =====
+
+    #[test]
+    fn parse_transport_mode_from_stop_place() {
+        let xml = std::fs::read_to_string(test_data_path("stopPlaces.xml")).unwrap();
+        let result = parse_netex(&xml).unwrap();
+        let bus_stop = result.stop_places.iter().find(|sp| sp.id == "NSR:StopPlace:56697").unwrap();
+        assert_eq!(bus_stop.transport_mode.as_deref(), Some("bus"));
+        assert_eq!(bus_stop.stop_place_type.as_deref(), Some("onstreetBus"));
+
+        let rail_station = result.stop_places.iter().find(|sp| sp.id == "NSR:StopPlace:305").unwrap();
+        assert_eq!(rail_station.transport_mode.as_deref(), Some("rail"));
+        assert_eq!(rail_station.stop_place_type.as_deref(), Some("railStation"));
+    }
+
+    #[test]
+    fn parse_group_of_stop_places() {
+        let xml = std::fs::read_to_string(test_data_path("stopPlaces.xml")).unwrap();
+        let result = parse_netex(&xml).unwrap();
+        assert_eq!(result.groups.len(), 2);
+        assert_eq!(result.groups[0].id, "NSR:GroupOfStopPlaces:72");
+        assert_eq!(result.groups[0].name.as_deref(), Some("Hammerfest"));
+        assert_eq!(result.groups[1].id, "NSR:GroupOfStopPlaces:1");
+        assert_eq!(result.groups[1].name.as_deref(), Some("Oslo"));
+    }
+
+    #[test]
+    fn parse_fare_zones_with_authority_ref() {
+        let xml = std::fs::read_to_string(test_data_path("stopPlaces.xml")).unwrap();
+        let result = parse_netex(&xml).unwrap();
+        assert_eq!(result.fare_zones.len(), 3);
+        let fin31 = result.fare_zones.get("FIN:FareZone:31").unwrap();
+        assert_eq!(fin31.authority_ref.as_ref().unwrap().ref_, "FIN:Authority:FIN_ID");
+        let rut4 = result.fare_zones.get("RUT:FareZone:4").unwrap();
+        assert_eq!(rut4.authority_ref.as_ref().unwrap().ref_, "RUT:Authority:RUT_ID");
+    }
+
+    // ===== Stop place popularity tests =====
+
+    #[test]
+    fn basic_stop_returns_default_popularity() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &[]);
+        assert_eq!(pop, config.stop_place.default_value);
+    }
+
+    #[test]
+    fn bus_station_has_higher_popularity_than_basic() {
+        let config = test_config();
+        let basic = make_stop_place("NSR:StopPlace:1", "Test", None, Some("onstreetBus"));
+        let bus_station = make_stop_place("NSR:StopPlace:2", "Test", None, Some("busStation"));
+        let basic_pop = calculate_stop_popularity(&config.stop_place, &basic, &[]);
+        let bus_pop = calculate_stop_popularity(&config.stop_place, &bus_station, &[]);
+        assert!(bus_pop > basic_pop);
+    }
+
+    #[test]
+    fn metro_station_has_boosted_popularity() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, Some("metroStation"));
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &[]);
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 2.0) as i64);
+    }
+
+    #[test]
+    fn rail_station_has_boosted_popularity() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, Some("railStation"));
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &[]);
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 2.0) as i64);
+    }
+
+    #[test]
+    fn recommended_interchange_multiplies_popularity() {
+        let config = test_config();
+        let mut sp = make_stop_place("NSR:StopPlace:1", "Test", None, Some("railStation"));
+        sp.weighting = Some("recommendedInterchange".to_string());
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &[]);
+        // 50 * 2 (rail) * 3 (interchange) = 300
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 2.0 * 3.0) as i64);
+    }
+
+    #[test]
+    fn preferred_interchange_gives_high_popularity() {
+        let config = test_config();
+        let mut sp = make_stop_place("NSR:StopPlace:1", "Test", None, Some("railStation"));
+        sp.weighting = Some("preferredInterchange".to_string());
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &[]);
+        // 50 * 2 * 10 = 1000
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 2.0 * 10.0) as i64);
+    }
+
+    #[test]
+    fn popularity_values_strictly_ordered() {
+        let config = test_config();
+        let pops: Vec<i64> = vec![
+            calculate_stop_popularity(&config.stop_place, &make_stop_place("1", "T", None, None), &[]),
+            calculate_stop_popularity(&config.stop_place, &make_stop_place("2", "T", None, Some("busStation")), &[]),
+            {
+                let mut sp = make_stop_place("3", "T", None, Some("railStation"));
+                sp.weighting = Some("recommendedInterchange".to_string());
+                calculate_stop_popularity(&config.stop_place, &sp, &[])
+            },
+            {
+                let mut sp = make_stop_place("4", "T", None, Some("railStation"));
+                sp.weighting = Some("preferredInterchange".to_string());
+                calculate_stop_popularity(&config.stop_place, &sp, &[])
+            },
+        ];
+        for i in 0..pops.len() - 1 {
+            assert!(pops[i] < pops[i + 1], "Expected {} < {}", pops[i], pops[i + 1]);
+        }
+    }
+
+    // ===== Multimodal parent tests =====
+
+    #[test]
+    fn multimodal_parent_uses_sum_of_child_types() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        let child_types = vec!["railStation".to_string(), "metroStation".to_string()];
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &child_types);
+        // 50 * (2 + 2) = 200
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 4.0) as i64);
+    }
+
+    #[test]
+    fn multimodal_parent_sums_factors_not_multiplies() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        let child_types = vec!["railStation".to_string(), "metroStation".to_string(), "busStation".to_string()];
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &child_types);
+        // 50 * (2+2+2) = 300, NOT 50 * 2*2*2 = 400
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 6.0) as i64);
+    }
+
+    #[test]
+    fn multimodal_parent_unconfigured_child_defaults_to_factor_1() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        let child_types = vec!["ferryStop".to_string(), "tramStation".to_string()];
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &child_types);
+        // 50 * (1+1) = 100
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 2.0) as i64);
+    }
+
+    #[test]
+    fn multimodal_parent_with_interchange() {
+        let config = test_config();
+        let mut sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        sp.weighting = Some("preferredInterchange".to_string());
+        let child_types = vec!["railStation".to_string(), "metroStation".to_string()];
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &child_types);
+        // 50 * (2+2) * 10 = 2000
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 4.0 * 10.0) as i64);
+    }
+
+    #[test]
+    fn duplicate_child_types_are_summed() {
+        let config = test_config();
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", None, None);
+        let child_types = vec!["railStation".to_string(), "railStation".to_string(), "railStation".to_string()];
+        let pop = calculate_stop_popularity(&config.stop_place, &sp, &child_types);
+        // 50 * (2+2+2) = 300
+        assert_eq!(pop, (config.stop_place.default_value as f64 * 6.0) as i64);
+    }
+
+    // ===== GroupOfStopPlaces popularity tests =====
+
+    #[test]
+    fn gosp_single_member_boosted() {
+        let config = test_config();
+        let pop = config.group_of_stop_places.gos_boost_factor * 60.0;
+        assert_eq!(pop, 600.0);
+    }
+
+    #[test]
+    fn gosp_two_members_multiplies() {
+        let config = test_config();
+        let pop = config.group_of_stop_places.gos_boost_factor * (60.0 * 60.0);
+        assert_eq!(pop, 36000.0);
+    }
+
+    #[test]
+    fn gosp_empty_returns_boost_factor() {
+        let config = test_config();
+        // Empty fold: 1.0 * boost
+        let pops: Vec<i64> = vec![];
+        let result = if pops.is_empty() {
+            config.group_of_stop_places.gos_boost_factor
+        } else {
+            config.group_of_stop_places.gos_boost_factor * pops.iter().fold(1.0, |acc, &p| acc * p as f64)
+        };
+        assert_eq!(result, 10.0);
+    }
+
+    #[test]
+    fn gosp_realistic_oslo_scenario() {
+        let config = test_config();
+        let member_pops: Vec<i64> = vec![600, 60, 60];
+        let pop = config.group_of_stop_places.gos_boost_factor
+            * member_pops.iter().fold(1.0, |acc, &p| acc * p as f64);
+        assert_eq!(pop, 21_600_000.0);
+    }
+
+    // ===== Transport mode formatting tests =====
+
+    #[test]
+    fn transport_mode_with_bus_submode() {
+        let sp = make_stop_place_with_submode("1", "bus", Some("localBus"), None, None);
+        assert_eq!(format_transport_mode(&sp), Some("bus:localBus".to_string()));
+    }
+
+    #[test]
+    fn transport_mode_with_rail_submode() {
+        let sp = make_stop_place_with_submode("1", "rail", None, Some("highSpeedRail"), None);
+        assert_eq!(format_transport_mode(&sp), Some("rail:highSpeedRail".to_string()));
+    }
+
+    #[test]
+    fn transport_mode_without_submode() {
+        let sp = make_stop_place("1", "Test", Some("bus"), Some("onstreetBus"));
+        assert_eq!(format_transport_mode(&sp), Some("bus".to_string()));
+    }
+
+    #[test]
+    fn parent_collects_child_transport_modes() {
+        let parent = make_stop_place("1", "Parent", Some("rail"), Some("railStation"));
+        let child_bus = make_stop_place_with_submode("2", "bus", Some("localBus"), None, None);
+        let child_tram = make_stop_place("3", "Tram", Some("tram"), None);
+        let child_refs: Vec<&StopPlaceXml> = vec![&child_bus, &child_tram];
+        let result = collect_transport_modes(&parent, &child_refs);
+        assert_eq!(result, Some("rail;bus:localBus;tram".to_string()));
+    }
+
+    #[test]
+    fn parent_preserves_duplicate_mode_keys_with_different_submodes() {
+        let parent = make_stop_place_with_submode("1", "tram", None, None, Some("cityTram"));
+        let child = make_stop_place("2", "Tram", Some("tram"), None);
+        let child_refs: Vec<&StopPlaceXml> = vec![&child];
+        let result = collect_transport_modes(&parent, &child_refs);
+        assert_eq!(result, Some("tram:cityTram;tram".to_string()));
+    }
+
+    #[test]
+    fn standalone_has_only_own_transport_mode() {
+        let sp = make_stop_place_with_submode("1", "bus", Some("localBus"), None, None);
+        let result = collect_transport_modes(&sp, &[]);
+        assert_eq!(result, Some("bus:localBus".to_string()));
+    }
+
+    // ===== Alternative names tests =====
+
+    #[test]
+    fn only_label_visible_in_extra_alt_name() {
+        let sp = make_stop_place_with_alt_names("1", "Oslo S", vec![
+            ("Oslo Sentralstasjon", Some("label")),
+            ("Oslo Central Station", Some("translation")),
+            ("Jernbanetorget", None),
+        ]);
+        let visible = alt_stop_names(&sp, "Oslo S", Some("label"));
+        let indexed = alt_stop_names(&sp, "Oslo S", None);
+        assert!(visible.contains(&"Oslo Sentralstasjon".to_string()));
+        assert!(!visible.contains(&"Oslo Central Station".to_string()));
+        assert!(!visible.contains(&"Jernbanetorget".to_string()));
+        assert!(indexed.contains(&"Oslo Sentralstasjon".to_string()));
+        assert!(indexed.contains(&"Oslo Central Station".to_string()));
+        assert!(indexed.contains(&"Jernbanetorget".to_string()));
+    }
+
+    #[test]
+    fn alt_names_empty_when_none() {
+        let sp = make_stop_place("1", "Simple Stop", None, None);
+        let result = alt_stop_names(&sp, "Simple Stop", None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn alt_names_exclude_primary_name() {
+        let sp = make_stop_place_with_alt_names("1", "Oslo S", vec![
+            ("Oslo S", Some("label")),
+            ("Oslo Central", Some("translation")),
+        ]);
+        let result = alt_stop_names(&sp, "Oslo S", None);
+        assert!(!result.contains(&"Oslo S".to_string()));
+        assert!(result.contains(&"Oslo Central".to_string()));
+    }
+
+    // ===== Category tests =====
+
+    #[test]
+    fn funicular_transport_mode_included_in_categories() {
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", Some("funicular"), Some("other"));
+        let result = convert_stop_place(
+            &config, &importance_calc, &sp, &HashMap::new(), &HashMap::new(),
+            &HashMap::new(), 50, &[], &[],
+        ).unwrap();
+        let cats = &result.content[0].categories;
+        assert!(cats.iter().any(|c| c == "legacy.category.funicular"));
+        assert!(cats.iter().any(|c| c == "legacy.category.other"));
+    }
+
+    #[test]
+    fn bus_transport_mode_not_in_categories() {
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let sp = make_stop_place("NSR:StopPlace:1", "Test", Some("bus"), Some("onstreetBus"));
+        let result = convert_stop_place(
+            &config, &importance_calc, &sp, &HashMap::new(), &HashMap::new(),
+            &HashMap::new(), 50, &[], &[],
+        ).unwrap();
+        let cats = &result.content[0].categories;
+        assert!(!cats.iter().any(|c| c == "legacy.category.bus"));
+        assert!(cats.iter().any(|c| c == "legacy.category.onstreetBus"));
+    }
+
+    #[test]
+    fn parent_stop_includes_child_types_and_multimodal_category() {
+        let config = test_config();
+        let importance_calc = ImportanceCalculator::new(&config.importance);
+        let sp = make_stop_place("NSR:StopPlace:Parent", "Hub", Some("funicular"), Some("other"));
+        let mut child_types_map: HashMap<String, Vec<String>> = HashMap::new();
+        child_types_map.insert("NSR:StopPlace:Parent".to_string(),
+            vec!["onstreetBus".to_string(), "railStation".to_string(), "metroStation".to_string()]);
+        let result = convert_stop_place(
+            &config, &importance_calc, &sp, &HashMap::new(), &child_types_map,
+            &HashMap::new(), 50, &[], &[],
+        ).unwrap();
+        let cats = &result.content[0].categories;
+        assert!(cats.iter().any(|c| c == "legacy.category.funicular"));
+        assert!(cats.iter().any(|c| c == "legacy.category.onstreetBus"));
+        assert!(cats.iter().any(|c| c == "legacy.category.railStation"));
+        assert!(cats.iter().any(|c| c == "legacy.category.metroStation"));
+        assert!(cats.iter().any(|c| c == "multimodal.parent"));
+    }
+
+    // ===== Full conversion tests =====
+
+    #[test]
+    fn convert_stop_places_xml_produces_output() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_stopplace_output.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("NominatimDumpFile"));
+        assert!(content.contains("NSR:StopPlace:56697"));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn convert_produces_group_of_stop_places() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_gosp_output.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("NSR:GroupOfStopPlaces:1"));
+        assert!(content.contains("NSR:GroupOfStopPlaces:72"));
+        assert!(content.contains("\"name\":\"Oslo\""));
+        assert!(content.contains("osm.public_transport.group_of_stop_places"));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn output_has_valid_json_on_each_line() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_valid_json.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let lines: Vec<String> = std::fs::read_to_string(&output).unwrap().lines().map(String::from).collect();
+        assert!(!lines.is_empty());
+        for line in &lines {
+            assert!(line.starts_with('{'));
+            assert!(line.ends_with('}'));
+        }
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn all_stop_places_have_coordinates() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_coords.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let lines: Vec<String> = std::fs::read_to_string(&output).unwrap().lines()
+            .filter(|l| l.contains("NSR:StopPlace:"))
+            .map(String::from).collect();
+        assert!(!lines.is_empty());
+        for line in &lines {
+            assert!(line.contains("\"centroid\":["));
+        }
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn stop_places_have_fare_zone_authority_categories() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_authority.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("fare_zone_authority.FIN.Authority.FIN_ID"));
+        assert!(content.contains("fare_zone_authority.RUT.Authority.RUT_ID"));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn stop_place_with_bus_submode_has_transport_mode_in_output() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_transport_mode.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("\"transport_mode\":\"bus:localBus\""));
+        let _ = std::fs::remove_file(&output);
+    }
+
+    #[test]
+    fn stop_places_have_county_gid_and_locality_gid() {
+        let config = test_config();
+        let input = test_data_path("stopPlaces.xml");
+        let output = std::env::temp_dir().join("test_gid.ndjson");
+        convert(&config, &input, &output, false).unwrap();
+        let content = std::fs::read_to_string(&output).unwrap();
+        assert!(content.contains("county_gid.KVE"));
+        assert!(content.contains("locality_gid.KVE"));
+        let _ = std::fs::remove_file(&output);
+    }
+}

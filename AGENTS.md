@@ -78,6 +78,55 @@ python3 compare-ndjson.py /tmp/kotlin.ndjson /tmp/rust.ndjson --order
 
 For matrikkel/stedsnavn/osm, coordinate diffs at the 6th decimal are expected (different projection libraries).
 
+## Downstream pipeline context
+
+This converter produces `nominatim.ndjson` which is imported into the **Photon geocoder**, proxied by `../geocoder/proxy`, and validated by `../geocoder-acceptance-tests/`. Understanding what the acceptance tests actually check helps prioritize what matters most in the converter output.
+
+### Fields that acceptance tests validate
+
+- **name / alt_name** — Fuzzy search, popular name matching (e.g. "gardermoen" → "Oslo lufthavn"). Norwegian diacritics (ø, å, æ, ü) must be preserved.
+- **categories** — Layer/category filtering (`onstreetBus`, `railStation`, `airport`, `busStation`). Multi-modal stops must include all transport modes.
+- **housenumber** — Address searches like "karl johans gate 2" depend on correct housenumber extraction.
+- **source (extra field)** — Acceptance tests filter by data source (`openaddresses`, `openstreetmap`). Source tags must match expected values.
+- **importance** — Directly affects result ranking. Acceptance tests use `priorityThresh` to verify top-N placement.
+- **county_gid / locality_gid (extra fields)** — Used for `boundary.county_ids` filtering. Must support both full (`KVE:TopographicPlace:18`) and numeric (`18`) formats.
+- **tariff_zones (extra field)** — Used for tariff-based filtering downstream.
+- **centroid coordinates** — Reverse geocoding, focus-point disambiguation, and distance calculations all depend on coordinate accuracy.
+
+### Acceptance test patterns worth knowing
+
+- **Geographic disambiguation**: Same place name in multiple locations (e.g. "Haugen") — focus points select the closest. Correct coordinates are critical.
+- **Data source priority**: NSR takes priority over WhosOnFirst for stop places. GroupOfStopPlaces rank above individual StopPlaces for major cities.
+- **Popular vs official names**: "Gardermoen" (popular) should find "Oslo lufthavn" (official). Alt name deduplication and ordering matter.
+- **House number edge cases**: Numbers can appear before street name ("10 schw"), with suffixes ("10B"), or after ("strandkaien 22").
+- **Multi-modal categories**: Stavanger stasjon = railStation + onstreetBus. Oslo lufthavn = railStation + onstreetBus + busStation + airport. Category arrays must be complete.
+- **Reverse geocoding should NOT return bare house numbers** — layer filtering depends on correct `object_type` and category assignment.
+
+### Test coverage
+
+All source converters have unit tests (`cargo test --release` runs ~223 tests). Coverage by module:
+
+1. **stopplace** (38 tests): NeTEx parsing, popularity calculation (base × type factors × interchange), GroupOfStopPlaces boost (gosBoostFactor × product of member popularities), transport mode formatting (mode:submode, parent collecting children with dedup), alt name handling (label → visible, translation → indexed only), category generation (funicular included, bus excluded, multimodal.parent marker), tariff zone ordering, full conversion integration tests (coordinates, authority categories, county_gid/locality_gid)
+2. **stedsnavn** (22 tests): Target type recognition (by/bydel/tettsted/tettsteddel/tettbebyggelse), spelling status filtering (vedtatt/godkjent/privat/samlevedtak accepted), GML parsing with historisk alt spelling, diacritics preservation, field validation (source, accuracy, country_code, importance, rank_address), locality/county GID format, coordinate ranges, titleized names
+3. **matrikkel** (12 tests): CSV→NDJSON conversion, field validation (id, source, accuracy, country_a, locality, borough, housenumber with letter suffix), county population via stedsnavn GML, address + street entry generation, category correctness, coordinate validity, importance range, county GID in categories
+4. **poi** (7 tests): ValidBetween date filtering (valid/expired/future/always-valid/open-ended), coordinate and category correctness
+5. **osm** (47 tests): Popularity formula (base × max priority, highest priority wins, unmatched/empty → zero), filter_tags (keeps only configured filters, sorted BTreeMap keys, empty for no matches), rank_address determination (boundary > place > road > building > poi priority), convert_node integration (object_type, accuracy, source, categories from filtered tags, alt name extraction from filtered tags only, en:name, OSM ID in extra and indexed alt_names, coordinates, importance reflects priority), admin boundary integration (county_gid, locality_gid, titleized municipality name, county_gid in categories), extract_country_code (ISO3166-2, country_code tag, numeric ref → Norway), as_category colon replacement, plus low-level tests (CoordinateStore, BoundingBox, ray casting, street segment distance, centroid calculation, titleize)
+
+### Test data fixtures
+
+- `test-data/stopPlaces.xml` — NeTEx with TopographicPlaces (counties/municipalities for topo lookups), 2 GroupOfStopPlaces, 6 StopPlaces (bus, rail, parent, child, alt names, submodes), 3 FareZones
+- `test-data/poi-test.xml` — 5 TopographicPlaces with varying validity periods
+- `test-data/bydel.gml` — 2 Oslo bydeler (Grünerløkka, Frogner) in UTM33
+- `test-data/Basisdata_3420_Elverum_25833_MatrikkelenAdresse.csv` — Real Elverum address data (10,871 lines)
+- `test-data/Basisdata_3420_Elverum_25833_Stedsnavn_GML.gml` — Kommune-fylke mapping for matrikkel tests
+
+### Test patterns
+
+- Each module uses a `test_config()` helper returning a full `Config` from inline JSON
+- `test_data_path(name)` resolves fixtures relative to `CARGO_MANIFEST_DIR`
+- Temp output files use unique suffixes per test to avoid parallel test conflicts
+- Integration tests call the module's `convert()` function end-to-end, then parse the NDJSON output
+
 ## Common pitfalls
 
 - **XML tag names are case-sensitive**: `alternativeNames` not `AlternativeNames`, `parentSiteRef` has an `@ref` attribute (use `RefAttr` struct).

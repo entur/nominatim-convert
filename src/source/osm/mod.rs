@@ -1616,4 +1616,568 @@ mod tests {
     fn test_calculate_centroid_empty() {
         assert!(calculate_centroid(&[]).is_none());
     }
+
+    // ===== OSM Popularity Calculator tests =====
+
+    fn full_test_config() -> crate::config::Config {
+        serde_json::from_str(r#"{
+            "osm": {
+                "defaultValue": 1.0,
+                "rankAddress": { "boundary": 10, "place": 20, "road": 26, "building": 28, "poi": 30 },
+                "filters": [
+                    {"key": "amenity", "value": "hospital", "priority": 9},
+                    {"key": "amenity", "value": "cinema", "priority": 1},
+                    {"key": "amenity", "value": "restaurant", "priority": 6},
+                    {"key": "amenity", "value": "school", "priority": 9},
+                    {"key": "tourism", "value": "hotel", "priority": 6},
+                    {"key": "tourism", "value": "museum", "priority": 8},
+                    {"key": "tourism", "value": "attraction", "priority": 1}
+                ]
+            },
+            "stedsnavn": { "defaultValue": 40.0, "rankAddress": 16 },
+            "matrikkel": { "addressPopularity": 20.0, "streetPopularity": 20.0, "rankAddress": 26 },
+            "poi": { "importance": 0.5, "rankAddress": 30 },
+            "stopPlace": {
+                "defaultValue": 50, "rankAddress": 30,
+                "stopTypeFactors": { "busStation": 2.0, "metroStation": 2.0, "railStation": 2.0 },
+                "interchangeFactors": { "recommendedInterchange": 3.0, "preferredInterchange": 10.0 }
+            },
+            "groupOfStopPlaces": { "gosBoostFactor": 10.0, "rankAddress": 30 },
+            "importance": { "minPopularity": 1.0, "maxPopularity": 1000000000.0, "floor": 0.1 }
+        }"#).unwrap()
+    }
+
+    #[test]
+    fn popularity_base_times_priority() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        let hospital = BTreeMap::from([("amenity", "hospital")]); // priority 9
+        let cinema = BTreeMap::from([("amenity", "cinema")]); // priority 1
+        let h_pop = calc.calculate_popularity(&hospital);
+        let c_pop = calc.calculate_popularity(&cinema);
+        assert!(h_pop > 0.0);
+        assert!(c_pop > 0.0);
+        assert_eq!(h_pop / c_pop, 9.0);
+    }
+
+    #[test]
+    fn multiple_matching_tags_use_highest_priority() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        let high_only = BTreeMap::from([("amenity", "hospital")]); // 9
+        let both = BTreeMap::from([("amenity", "hospital"), ("tourism", "attraction")]); // 9, 1
+        assert_eq!(calc.calculate_popularity(&high_only), calc.calculate_popularity(&both));
+    }
+
+    #[test]
+    fn unmatched_tags_return_zero() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        assert_eq!(calc.calculate_popularity(&BTreeMap::from([("amenity", "bench")])), 0.0);
+        assert_eq!(calc.calculate_popularity(&BTreeMap::from([("shop", "convenience")])), 0.0);
+        assert_eq!(calc.calculate_popularity(&BTreeMap::from([("foo", "bar")])), 0.0);
+    }
+
+    #[test]
+    fn empty_tags_return_zero() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        assert_eq!(calc.calculate_popularity(&BTreeMap::new()), 0.0);
+    }
+
+    #[test]
+    fn has_filter_requires_exact_match() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        assert!(calc.has_filter("amenity", "hospital"));
+        assert!(!calc.has_filter("amenity", "bench"));
+        assert!(!calc.has_filter("amenity", "hospitals")); // plural
+        assert!(!calc.has_filter("building", "hospital")); // wrong key
+    }
+
+    #[test]
+    fn different_poi_types_have_different_priorities() {
+        let config = full_test_config();
+        let calc = OsmPopularityCalculator::new(&config);
+        let hospital = calc.calculate_popularity(&BTreeMap::from([("amenity", "hospital")]));
+        let hotel = calc.calculate_popularity(&BTreeMap::from([("tourism", "hotel")]));
+        let cinema = calc.calculate_popularity(&BTreeMap::from([("amenity", "cinema")]));
+        assert!(hospital > 0.0 && hotel > 0.0 && cinema > 0.0);
+        assert_ne!(hospital, hotel);
+        assert_ne!(hotel, cinema);
+        assert_ne!(hospital, cinema);
+    }
+
+    // ===== OsmEntityConverter tests =====
+    //
+    // These test filter_tags, category assignment, alt name extraction,
+    // rank_address determination, and importance via convert_node/convert_way.
+
+    fn make_converter<'a>(
+        config: &'a Config,
+        nodes: &'a CoordinateStore,
+        ways: &'a CoordinateStore,
+        admin_index: &'a mut AdministrativeBoundaryIndex,
+        street_index: &'a StreetIndex,
+        pop_calc: &'a OsmPopularityCalculator,
+    ) -> OsmEntityConverter<'a> {
+        OsmEntityConverter {
+            nodes_coords: nodes,
+            way_centroids: ways,
+            admin_boundary_index: admin_index,
+            street_index,
+            popularity_calculator: pop_calc,
+            importance_calc: ImportanceCalculator::new(&config.importance),
+            config,
+        }
+    }
+
+    fn empty_converter_parts(config: &Config) -> (CoordinateStore, CoordinateStore, AdministrativeBoundaryIndex, StreetIndex, OsmPopularityCalculator) {
+        (
+            CoordinateStore::new(0),
+            CoordinateStore::new(0),
+            AdministrativeBoundaryIndex::new(),
+            StreetIndex::new(),
+            OsmPopularityCalculator::new(config),
+        )
+    }
+
+    // -- filter_tags --
+
+    #[test]
+    fn filter_tags_keeps_only_configured_filters() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let mut tags = HashMap::new();
+        tags.insert("amenity", "hospital");
+        tags.insert("name", "Oslo Hospital");
+        tags.insert("building", "yes");
+
+        let filtered = conv.filter_tags(&tags);
+        assert!(filtered.contains_key("amenity"));
+        assert!(!filtered.contains_key("name"));
+        assert!(!filtered.contains_key("building"));
+    }
+
+    #[test]
+    fn filter_tags_returns_empty_for_no_matches() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let mut tags = HashMap::new();
+        tags.insert("name", "Something");
+        tags.insert("building", "yes");
+
+        let filtered = conv.filter_tags(&tags);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn filter_tags_returns_sorted_keys() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let mut tags = HashMap::new();
+        tags.insert("tourism", "museum");
+        tags.insert("amenity", "hospital");
+
+        let filtered = conv.filter_tags(&tags);
+        let keys: Vec<&str> = filtered.keys().copied().collect();
+        assert_eq!(keys, vec!["amenity", "tourism"]); // alphabetical
+    }
+
+    // -- determine_rank_address --
+
+    #[test]
+    fn rank_address_boundary_takes_priority() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = BTreeMap::from([("boundary", "administrative"), ("place", "city")]);
+        assert_eq!(conv.determine_rank_address(&tags), 10);
+    }
+
+    #[test]
+    fn rank_address_place_when_no_boundary() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = BTreeMap::from([("place", "city")]);
+        assert_eq!(conv.determine_rank_address(&tags), 20);
+    }
+
+    #[test]
+    fn rank_address_road() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = BTreeMap::from([("road", "residential")]);
+        assert_eq!(conv.determine_rank_address(&tags), 26);
+    }
+
+    #[test]
+    fn rank_address_building() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = BTreeMap::from([("building", "yes")]);
+        assert_eq!(conv.determine_rank_address(&tags), 28);
+    }
+
+    #[test]
+    fn rank_address_defaults_to_poi() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = BTreeMap::from([("amenity", "hospital")]);
+        assert_eq!(conv.determine_rank_address(&tags), 30);
+    }
+
+    // -- convert_node integration: categories, alt names, object type, fields --
+
+    #[test]
+    fn convert_node_returns_none_without_name() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("amenity", "hospital")]);
+        assert!(conv.convert_node(1, 59.9, 10.7, &tags).is_none());
+    }
+
+    #[test]
+    fn convert_node_returns_none_with_empty_name() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", ""), ("amenity", "hospital")]);
+        assert!(conv.convert_node(1, 59.9, 10.7, &tags).is_none());
+    }
+
+    #[test]
+    fn convert_node_has_correct_object_type() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test Hospital"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].object_type, "N");
+    }
+
+    #[test]
+    fn convert_node_has_point_accuracy() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test Hospital"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].extra.accuracy.as_deref(), Some("point"));
+    }
+
+    #[test]
+    fn convert_node_has_osm_source() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test Hospital"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].extra.source.as_deref(), Some("openstreetmap"));
+    }
+
+    #[test]
+    fn convert_node_categories_include_tag_values() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test Hospital"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        let cats = &place.content[0].categories;
+        assert!(cats.contains(&"legacy.category.hospital".to_string()));
+        assert!(cats.contains(&"legacy.source.whosonfirst".to_string()));
+        assert!(cats.contains(&"legacy.layer.address".to_string()));
+        assert!(cats.contains(&"osm.public_transport.poi".to_string()));
+        assert!(cats.contains(&"legacy.category.poi".to_string()));
+    }
+
+    #[test]
+    fn convert_node_categories_include_multiple_tag_values() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([
+            ("name", "Museum Hotel"),
+            ("amenity", "hospital"),
+            ("tourism", "museum"),
+        ]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        let cats = &place.content[0].categories;
+        assert!(cats.contains(&"legacy.category.hospital".to_string()));
+        assert!(cats.contains(&"legacy.category.museum".to_string()));
+    }
+
+    #[test]
+    fn convert_node_categories_exclude_non_filtered_tags() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([
+            ("name", "Something"),
+            ("amenity", "hospital"),
+            ("building", "yes"),  // not in filters
+        ]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        let cats = &place.content[0].categories;
+        assert!(!cats.contains(&"legacy.category.yes".to_string()));
+    }
+
+    #[test]
+    fn convert_node_has_correct_name() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Oslo Sykehus"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].name.as_ref().unwrap().name.as_deref(), Some("Oslo Sykehus"));
+    }
+
+    #[test]
+    fn convert_node_alt_names_from_filtered_tags() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        // alt_name is only extracted from filtered tags, not all_tags
+        // Since our filters only have amenity/tourism, alt_name in all_tags won't appear
+        // unless it's also in filtered tags
+        let tags = HashMap::from([
+            ("name", "Oslo Sykehus"),
+            ("amenity", "hospital"),
+            ("alt_name", "Oslo Hospital"),
+        ]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        // alt_name key is not in filtered tags (no filter for key="alt_name"),
+        // so visible_alt_names should be empty, but indexed alt names has the osm_id
+        let extra_alt = &place.content[0].extra.alt_name;
+        assert!(extra_alt.is_none()); // no visible alt names
+    }
+
+    #[test]
+    fn convert_node_en_name_from_filtered_tags() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        // en:name is also looked up from filtered tags
+        let tags = HashMap::from([
+            ("name", "Oslo Sykehus"),
+            ("amenity", "hospital"),
+            ("en:name", "Oslo Hospital"),
+        ]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        // en:name is not in filters, so name_en should be None
+        assert!(place.content[0].name.as_ref().unwrap().name_en.is_none());
+    }
+
+    #[test]
+    fn convert_node_osm_id_in_extra() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].extra.id.as_deref(), Some("OSM:TopographicPlace:42"));
+    }
+
+    #[test]
+    fn convert_node_osm_id_in_indexed_alt_names() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        // The indexed alt_name (in name struct) should contain the OSM ID
+        let name_alt = place.content[0].name.as_ref().unwrap().alt_name.as_ref().unwrap();
+        assert!(name_alt.contains("OSM:TopographicPlace:42"));
+    }
+
+    #[test]
+    fn convert_node_has_correct_coordinates() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.91, 10.75, &tags).unwrap();
+        let centroid = &place.content[0].centroid;
+        assert_eq!(centroid.len(), 2);
+        assert!((centroid[0] - 10.75).abs() < 1e-6); // lon first
+        assert!((centroid[1] - 59.91).abs() < 1e-6); // lat second
+    }
+
+    #[test]
+    fn convert_node_importance_reflects_priority() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let hospital_tags = HashMap::from([("name", "Hospital"), ("amenity", "hospital")]); // priority 9
+        let cinema_tags = HashMap::from([("name", "Cinema"), ("amenity", "cinema")]); // priority 1
+        let h = conv.convert_node(1, 59.9, 10.7, &hospital_tags).unwrap();
+        let c = conv.convert_node(2, 59.9, 10.7, &cinema_tags).unwrap();
+
+        let h_imp: f64 = h.content[0].importance.0.parse().unwrap();
+        let c_imp: f64 = c.content[0].importance.0.parse().unwrap();
+        assert!(h_imp > c_imp, "hospital importance ({h_imp}) should be higher than cinema ({c_imp})");
+    }
+
+    #[test]
+    fn convert_node_with_admin_boundary_has_county_gid() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+
+        // Add a county boundary that contains our test point
+        admin.add_boundary(AdministrativeBoundary {
+            name: "OSLO".to_string(),
+            admin_level: ADMIN_LEVEL_COUNTY,
+            ref_code: Some("03".to_string()),
+            country: Country::no(),
+            centroid: Coordinate { lat: 59.9, lon: 10.7 },
+            bbox: Some(BoundingBox { min_lat: 59.0, max_lat: 61.0, min_lon: 10.0, max_lon: 12.0 }),
+            boundary_nodes: vec![
+                Coordinate { lat: 59.0, lon: 10.0 },
+                Coordinate { lat: 59.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 10.0 },
+            ],
+        });
+
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].extra.county_gid.as_deref(), Some("KVE:TopographicPlace:03"));
+    }
+
+    #[test]
+    fn convert_node_with_municipality_has_locality_gid_and_titleized_name() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+
+        admin.add_boundary(AdministrativeBoundary {
+            name: "OSLO".to_string(),
+            admin_level: ADMIN_LEVEL_MUNICIPALITY,
+            ref_code: Some("0301".to_string()),
+            country: Country::no(),
+            centroid: Coordinate { lat: 59.9, lon: 10.7 },
+            bbox: Some(BoundingBox { min_lat: 59.0, max_lat: 61.0, min_lon: 10.0, max_lon: 12.0 }),
+            boundary_nodes: vec![
+                Coordinate { lat: 59.0, lon: 10.0 },
+                Coordinate { lat: 59.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 10.0 },
+            ],
+        });
+
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        assert_eq!(place.content[0].extra.locality_gid.as_deref(), Some("KVE:TopographicPlace:0301"));
+        assert_eq!(place.content[0].extra.locality.as_deref(), Some("Oslo")); // titleized
+        assert_eq!(place.content[0].address.city.as_deref(), Some("Oslo"));
+    }
+
+    #[test]
+    fn convert_node_county_gid_in_categories() {
+        let config = full_test_config();
+        let (nodes, ways, mut admin, streets, pop) = empty_converter_parts(&config);
+
+        admin.add_boundary(AdministrativeBoundary {
+            name: "OSLO".to_string(),
+            admin_level: ADMIN_LEVEL_COUNTY,
+            ref_code: Some("03".to_string()),
+            country: Country::no(),
+            centroid: Coordinate { lat: 59.9, lon: 10.7 },
+            bbox: Some(BoundingBox { min_lat: 59.0, max_lat: 61.0, min_lon: 10.0, max_lon: 12.0 }),
+            boundary_nodes: vec![
+                Coordinate { lat: 59.0, lon: 10.0 },
+                Coordinate { lat: 59.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 12.0 },
+                Coordinate { lat: 61.0, lon: 10.0 },
+            ],
+        });
+
+        let mut conv = make_converter(&config, &nodes, &ways, &mut admin, &streets, &pop);
+
+        let tags = HashMap::from([("name", "Test"), ("amenity", "hospital")]);
+        let place = conv.convert_node(42, 59.9, 10.7, &tags).unwrap();
+        let cats = &place.content[0].categories;
+        assert!(cats.iter().any(|c| c.starts_with("county_gid.") && c.contains("03")));
+    }
+
+    // -- extract_country_code --
+
+    #[test]
+    fn extract_country_code_from_iso3166_2() {
+        let tags = HashMap::from([("ISO3166-2", "NO-03")]);
+        let country = extract_country_code(&tags).unwrap();
+        assert_eq!(country.name, "no");
+    }
+
+    #[test]
+    fn extract_country_code_from_country_code_tag() {
+        let tags = HashMap::from([("country_code", "NO")]);
+        let country = extract_country_code(&tags).unwrap();
+        assert_eq!(country.name, "no");
+    }
+
+    #[test]
+    fn extract_country_code_from_numeric_ref_assumes_norway() {
+        let tags = HashMap::from([("ref", "0301")]);
+        let country = extract_country_code(&tags).unwrap();
+        assert_eq!(country.name, "no");
+    }
+
+    #[test]
+    fn extract_country_code_returns_none_for_no_tags() {
+        let tags: HashMap<&str, &str> = HashMap::new();
+        assert!(extract_country_code(&tags).is_none());
+    }
+
+    #[test]
+    fn extract_country_code_returns_none_for_non_numeric_ref() {
+        let tags = HashMap::from([("ref", "abc")]);
+        assert!(extract_country_code(&tags).is_none());
+    }
+
+    // -- as_category --
+
+    #[test]
+    fn as_category_replaces_colons_with_dots() {
+        assert_eq!(as_category("KVE:TopographicPlace:03"), "KVE.TopographicPlace.03");
+    }
+
+    #[test]
+    fn as_category_no_colons_unchanged() {
+        assert_eq!(as_category("simple"), "simple");
+    }
 }
