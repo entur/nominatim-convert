@@ -414,6 +414,194 @@ fn matrikkel_without_gml_or_flag_fails() {
     cleanup(&output);
 }
 
+// ===== Belägenhetsadress conversion =====
+
+#[test]
+fn belagenhet_produces_valid_ndjson() {
+    let output = temp_output("belagenhet-valid");
+    let (success, _, stderr) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success, "belagenhet failed: {stderr}");
+
+    let lines = read_ndjson(&output);
+    assert!(lines.len() >= 2, "expected header + entries, got {}", lines.len());
+    assert_eq!(lines[0]["type"], "NominatimDumpFile");
+
+    for entry in &lines[1..] {
+        assert_eq!(entry["type"], "Place");
+        let content = &entry["content"][0];
+        assert!(content["place_id"].is_string(), "missing place_id");
+        assert!(content["categories"].is_array(), "missing categories");
+        assert_eq!(content["country_code"].as_str(), Some("se"));
+    }
+
+    cleanup(&output);
+}
+
+#[test]
+fn belagenhet_has_addresses_and_streets() {
+    let output = temp_output("belagenhet-types");
+    let (success, _, _) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success);
+
+    let lines = read_ndjson(&output);
+    let data: Vec<&serde_json::Value> = lines[1..].iter().collect();
+
+    let address_count = data
+        .iter()
+        .filter(|e| {
+            e["content"][0]["categories"]
+                .as_array()
+                .is_some_and(|cats| cats.iter().any(|c| c.as_str() == Some("layer.address")))
+        })
+        .count();
+
+    let street_count = data
+        .iter()
+        .filter(|e| {
+            e["content"][0]["categories"]
+                .as_array()
+                .is_some_and(|cats| cats.iter().any(|c| c.as_str() == Some("layer.street")))
+        })
+        .count();
+
+    assert!(address_count > 0, "expected address entries, got 0");
+    assert!(street_count > 0, "expected street entries, got 0");
+    // Test data has 10 valid addresses and 8 unique streets
+    assert_eq!(address_count, 10, "expected 10 addresses");
+    assert_eq!(street_count, 8, "expected 8 streets");
+
+    cleanup(&output);
+}
+
+#[test]
+fn belagenhet_filters_non_current_addresses() {
+    let output = temp_output("belagenhet-filter");
+    let (success, _, _) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success);
+
+    let content = std::fs::read_to_string(&output).unwrap();
+    // "Reserverad" entries (fid 26004096, 26004735) should be filtered out
+    assert!(
+        !content.contains("Biskops-Arnövägen"),
+        "Reserverad address should be filtered out"
+    );
+    assert!(
+        !content.contains("Hjalmars väg"),
+        "Reserverad address with no postort should be filtered out"
+    );
+    // Valid entries should be present
+    assert!(content.contains("Bastubacken"));
+    assert!(content.contains("Tinbacken"));
+
+    cleanup(&output);
+}
+
+#[test]
+fn belagenhet_entries_have_valid_coordinates() {
+    let output = temp_output("belagenhet-coords");
+    let (success, _, _) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success);
+
+    let lines = read_ndjson(&output);
+    for entry in &lines[1..] {
+        let centroid = entry["content"][0]["centroid"].as_array().unwrap();
+        let lon = centroid[0].as_f64().unwrap();
+        let lat = centroid[1].as_f64().unwrap();
+        // All test data is in Sweden (roughly 55-70°N, 10-25°E)
+        assert!(
+            (10.0..=25.0).contains(&lon) && (55.0..=70.0).contains(&lat),
+            "coordinates should be in Sweden: [{lon}, {lat}]"
+        );
+    }
+
+    cleanup(&output);
+}
+
+#[test]
+fn belagenhet_entries_have_correct_source() {
+    let output = temp_output("belagenhet-source");
+    let (success, _, _) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success);
+
+    let lines = read_ndjson(&output);
+    for entry in &lines[1..] {
+        let source = entry["content"][0]["extra"]["source"].as_str().unwrap();
+        assert_eq!(source, "lantmateriet-belagenhetsadress");
+    }
+
+    cleanup(&output);
+}
+
+#[test]
+fn belagenhet_housenumber_with_letter_suffix() {
+    let output = temp_output("belagenhet-hn");
+    let (success, _, _) = run_converter(&[
+        "belagenhet",
+        "-i",
+        test_data("belagenhetsadresser_kn0305.gpkg").to_str().unwrap(),
+        "-o",
+        output.to_str().unwrap(),
+        "-c",
+        config_path().to_str().unwrap(),
+        "-f",
+    ]);
+    assert!(success);
+
+    let content = std::fs::read_to_string(&output).unwrap();
+    // Skogsvägen 42A has bokstavstillagg = "A"
+    assert!(
+        content.contains("42A"),
+        "housenumber with letter suffix should be combined: expected '42A'"
+    );
+
+    cleanup(&output);
+}
+
 // ===== Append mode =====
 
 #[test]

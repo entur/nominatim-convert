@@ -46,7 +46,7 @@ pub fn resolve_input(
     }
 }
 
-fn make_temp_path(ext: &str) -> PathBuf {
+pub fn make_temp_path(ext: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir();
@@ -63,7 +63,7 @@ fn make_temp_path(ext: &str) -> PathBuf {
     }
 }
 
-fn download_to_file(
+pub fn download_to_file(
     mut reader: impl Read,
     path: &Path,
     content_length: Option<u64>,
@@ -98,7 +98,7 @@ fn download_to_file(
     Ok(())
 }
 
-fn extract_from_zip(
+pub fn extract_from_zip(
     zip_path: &Path,
     glob_pattern: Option<&str>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {

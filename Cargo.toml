@@ -15,6 +15,8 @@ country-boundaries = "1"
 ureq = "3"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 iso3166-static = "0.4.1"
+rusqlite = { version = "0.34", features = ["bundled"] }
+dotenvy = "0.15"
 
 [profile.release]
 lto = true

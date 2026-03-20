@@ -1,6 +1,6 @@
 # nominatim-converter
 
-A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-compatible NDJSON. This is a port of the [Kotlin converter](https://github.com/entur/geocoder/tree/last-with-kotlin-converter/converter), producing identical output.
+A Rust CLI tool that converts geographic data sources into Nominatim-compatible NDJSON.
 
 ## Data sources
 
@@ -11,6 +11,7 @@ A Rust CLI tool that converts Norwegian geographic data sources into Nominatim-c
 | **stedsnavn** | GML | Kartverket place names (SSR) |
 | **poi** | NeTEx XML | Points of interest from NeTEx |
 | **osm** | PBF | OpenStreetMap entities (nodes, ways, relations) |
+| **belagenhet** | GeoPackage | Lantmäteriet belägenhetsadresser (Swedish cadastral addresses) |
 
 ## Building
 
@@ -44,6 +45,22 @@ nominatim-converter poi -i poi.xml -o output.ndjson -c converter.json
 
 # OSM
 nominatim-converter osm -i planet.osm.pbf -o output.ndjson -c converter.json
+
+# Belägenhetsadress (from local GeoPackage file)
+nominatim-converter belagenhet -i belagenhetsadresser_kn0180.gpkg -o output.ndjson -c converter.json
+
+# Belägenhetsadress (download from Lantmäteriet by municipality code)
+nominatim-converter belagenhet -m 0180 -o output.ndjson -c converter.json
+
+# Belägenhetsadress (multiple municipalities)
+nominatim-converter belagenhet -m 0180 0114 1480 -o output.ndjson -c converter.json
+```
+
+The `belagenhet -m` download mode requires Lantmäteriet Geotorget credentials via environment variables or a `.env` file:
+
+```bash
+export LANTMATERIET_USER=your_username
+export LANTMATERIET_PASS=your_password
 ```
 
 ### Common flags
@@ -70,7 +87,7 @@ Subsequent lines are place entries:
 {"type":"Place","content":[{"place_id":"KVE-PostalAddress-225678815","object_type":"N","categories":[...],...}]}
 ```
 
-All floating-point values are serialized with exactly 6 decimal places to match the Kotlin output.
+All floating-point values are serialized with exactly 6 decimal places.
 
 ## Architecture
 
@@ -83,7 +100,7 @@ src/
 │   ├── coordinate.rs        # Lat/lon coordinate type
 │   ├── country.rs           # ISO 3166-1 alpha-2/alpha-3 mapping (full set)
 │   ├── extra.rs             # Extra metadata fields
-│   ├── geo.rs               # UTM33→WGS84 projection, country detection
+│   ├── geo.rs               # Coordinate projection (UTM33, SWEREF99 TM → WGS84), country detection
 │   ├── importance.rs        # Log-normalized importance scoring
 │   ├── text.rs              # OSM tag formatting
 │   ├── translator.rs        # Name/type translations
@@ -93,6 +110,7 @@ src/
 │   ├── matrikkel/           # Kartverket CSV addresses (parse, convert)
 │   ├── stedsnavn/           # SSR GML place names (gml, convert)
 │   ├── poi/                 # NeTEx POI (xml, convert)
+│   ├── belagenhet/          # Lantmäteriet GeoPackage addresses (parse, convert, download)
 │   └── osm/                 # OSM PBF 4-pass (passes, entity, admin, street, ...)
 └── target/
     ├── json_writer.rs       # NDJSON output with header
@@ -102,70 +120,8 @@ src/
 
 ## Embedded data
 
-- `data/boundaries60x30.ser` — Country boundary raster data, embedded in the binary via `include_bytes!`. Originally from [JOSM's boundaries.osm](https://josm.openstreetmap.de/browser/josm/trunk/resources/data/boundaries.osm), manually edited to improve border accuracy, and stored in [entur/geocoder-data](https://github.com/entur/geocoder-data). Converted to `.ser` format using the [countryboundaries](https://github.com/westnordost/countryboundaries) generator. Uses the same file as the Kotlin converter for identical country detection results.
-
-## Compatibility with the Kotlin converter
-
-This converter originally produced identical output to the Kotlin version. It has since diverged with the adoption of structured IDs.
-
-Key differences from the Kotlin converter:
-- **place_id**: Now a string using Transmodel-style structured IDs (e.g. `KVE-PostalAddress-225678815`, `NSR-StopPlace-59977`, `OSM-PointOfInterest-12345`), replacing the old numeric Java `hashCode`-based IDs
-- **object_id**: Set to 0 for all entries (vestigial field)
-- **Coordinate rounding**: Last-digit differences (0.000001° ≈ 0.1m) from different projection libraries (GeoTools/JTS in Kotlin vs proj4 in Rust)
-
-Implementation details carried over from the Kotlin converter:
-- **Country detection**: Same `boundaries60x30.ser` file and `country-boundaries` crate (by the same author as the Java library)
-- **Float formatting**: 6 decimal places for importance, coordinates, and bounding boxes
-- **Category ordering**: Matches Kotlin's 3-pass tariff zone construction (StopPlace), BTreeMap for sorted tag keys (OSM)
-- **Alt name deduplication**: Preserves insertion order (like Java's LinkedHashSet)
-- **PBF file order**: OSM entities are processed in PBF file order via ordered ID vectors, matching Kotlin's Osmosis sequential reader
-- **CoordinateStore**: Open-addressing hash map with delta-encoded int coordinates at 1e5 scale (~1.1m precision), matching Kotlin's implementation
-
-### Production verification
-
-Verified with full Norway production datasets:
-
-| Converter | Entries | Identical | Remaining Diffs |
-|-----------|---------|-----------|-----------------|
-| StopPlace (403MB XML) | 58,085 | 100% | 0 |
-| Stedsnavn (2.4GB GML) | 2,215 | 87% | 288 coord precision |
-| OSM (1.3GB PBF) | 37,001 | 98.9% | 346 coord + 63 street edge cases |
-| Matrikkel (775MB CSV + 2.4GB GML) | 2,659,069 | 89.3% | 285,481 coord precision |
-
-All diffs are last-digit coordinate rounding from different UTM33→WGS84 projection libraries.
-
-## Performance
-
-Benchmarks on Apple Silicon (M-series), release build with LTO. Compared to the [Kotlin converter](https://github.com/entur/geocoder/tree/last-with-kotlin-converter/converter) (JVM 21):
-
-| Source | Entries | Rust | Kotlin | Speedup |
-|--------|---------|------|--------|---------|
-| StopPlace (403MB XML) | 58,062 | 1.1s | 6.5s | **5.9x** |
-| Stedsnavn (2.4GB GML) | 2,216 | 4.4s | 8.4s | **1.9x** |
-| OSM (1.3GB PBF) | 37,001 | 79s | 137s | **1.7x** |
-| Matrikkel (775MB CSV + 2.4GB GML) | 2,659,069 | 14s | 25s | **1.8x** |
-
-## Comparison tool
-
-`compare-ndjson.py` is a reusable tool for comparing Nominatim NDJSON files:
-
-```bash
-# Basic 2-file comparison
-./compare-ndjson.py kotlin.ndjson rust.ndjson
-
-# Inspect a specific entry
-./compare-ndjson.py kotlin.ndjson rust.ndjson --inspect KVE-PostalAddress-225678815
-
-# Compare ordering patterns
-./compare-ndjson.py kotlin.ndjson rust.ndjson --order
-
-# Value distribution for differing entries
-./compare-ndjson.py kotlin.ndjson rust.ndjson --histogram extra.source
-
-# Focus on specific fields
-./compare-ndjson.py kotlin.ndjson rust.ndjson --field categories --subfield extra
-```
+- `data/boundaries60x30.ser` — Country boundary raster data, embedded in the binary via `include_bytes!`. Originally from [JOSM's boundaries.osm](https://josm.openstreetmap.de/browser/josm/trunk/resources/data/boundaries.osm), converted to `.ser` format using the [countryboundaries](https://github.com/westnordost/countryboundaries) generator.
 
 ## License
 
-Same as the upstream Kotlin converter.
+EUPL-1.2

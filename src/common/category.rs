@@ -13,6 +13,7 @@ pub const GOSP: &str = "GroupOfStopPlaces";
 
 pub const SOURCE_OSM: &str = "source.openstreetmap";
 pub const SOURCE_POI: &str = "source.custom.poi";
+pub const SOURCE_BELAGENHET: &str = "source.lantmateriet.belagenhetsadress";
 
 pub const LAYER_ADDRESS: &str = "layer.address";
 pub const LAYER_STREET: &str = "layer.street";

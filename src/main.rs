@@ -19,14 +19,16 @@ struct Cli {
 enum Action {
     /// Convert StopPlace NeTEx XML
     Stopplace(ConvertArgs),
-    /// Convert Matrikkel CSV data
+    /// Convert Matrikkel CSV data (Kartverket)
     Matrikkel(MatrikkelArgs),
     /// Convert OSM PBF data
     Osm(ConvertArgs),
-    /// Convert Stedsnavn GML data
+    /// Convert Stedsnavn GML data (Kartverket)
     Stedsnavn(ConvertArgs),
     /// Convert POI NeTEx XML data
     Poi(ConvertArgs),
+    /// Convert Swedish belägenhetsadresser (Lantmäteriet)
+    Belagenhet(BelagenhetArgs),
 }
 
 #[derive(Parser)]
@@ -49,6 +51,29 @@ struct ConvertArgs {
 }
 
 #[derive(Parser)]
+struct BelagenhetArgs {
+    /// Input .gpkg file (required when -m is not used)
+    #[arg(short = 'i')]
+    input: Option<PathBuf>,
+    /// Output file
+    #[arg(short = 'o')]
+    output: PathBuf,
+    /// Configuration file (defaults to converter.json)
+    #[arg(short = 'c')]
+    config: Option<PathBuf>,
+    /// Append to existing output file
+    #[arg(short = 'a', default_value_t = false)]
+    append: bool,
+    /// Force overwrite if output file exists
+    #[arg(short = 'f', default_value_t = false)]
+    force: bool,
+    /// Swedish municipality code(s) to download from Lantmäteriet (e.g. 0180 for Stockholm).
+    /// Requires LANTMATERIET_USER and LANTMATERIET_PASS env vars (or .env file).
+    #[arg(short = 'm', long = "municipality", num_args = 1.., conflicts_with = "input")]
+    municipality: Option<Vec<String>>,
+}
+
+#[derive(Parser)]
 struct MatrikkelArgs {
     #[command(flatten)]
     common: ConvertArgs,
@@ -67,6 +92,9 @@ fn main() {
         // SAFETY: called at the start of main before any other threads are spawned.
         unsafe { std::env::set_var("PROJ_DATA", "/dev/null") };
     }
+
+    // Load .env file for credentials (Lantmäteriet etc.) -- once, before any subcommand runs.
+    dotenvy::dotenv().ok();
 
     let cli = Cli::parse();
 
@@ -111,6 +139,26 @@ fn main() {
         Action::Poi(args) => run_conversion("POI", args, None, |cfg, input, output, append| {
             source::poi::convert(cfg, input, output, append)
         }),
+        Action::Belagenhet(args) => {
+            if let Some(ref municipalities) = args.municipality {
+                run_belagenhet_download(&args, municipalities)
+            } else {
+                let input = args.input.as_ref().unwrap_or_else(|| {
+                    eprintln!("Error: belagenhet requires either -i <file.gpkg> or -m <municipality_code>");
+                    std::process::exit(1);
+                });
+                let convert_args = ConvertArgs {
+                    input: input.clone(),
+                    output: args.output,
+                    config: args.config,
+                    append: args.append,
+                    force: args.force,
+                };
+                run_conversion("Belägenhetsadress", convert_args, Some("*.gpkg"), |cfg, input, output, append| {
+                    source::belagenhet::convert(cfg, input, output, append)
+                })
+            }
+        }
     };
 
     if let Err(e) = result {
@@ -160,5 +208,50 @@ where
     let size_mb = std::fs::metadata(output).map(|m| m.len() as f64 / (1024.0 * 1024.0)).unwrap_or(0.0);
     let action = if args.append { "Appended to" } else { "Output written to" };
     eprintln!("{name} conversion completed in {duration:.2} seconds. {action} {}, size: {size_mb:.2} MB.", output.display());
+    Ok(())
+}
+
+fn run_belagenhet_download(
+    args: &BelagenhetArgs,
+    municipalities: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = config::Config::load(args.config.as_deref())?;
+    let output = &args.output;
+
+    if output.exists() {
+        if !args.force && !args.append {
+            return Err(format!(
+                "Output file '{}' already exists. Use -f to overwrite or -a to append.",
+                output.display()
+            ).into());
+        }
+        if args.force {
+            eprintln!("Overwriting existing file: {}", output.display());
+            std::fs::remove_file(output)?;
+        }
+    }
+
+    let start = Instant::now();
+    let mut is_first = !args.append;
+
+    for (i, kommun_id) in municipalities.iter().enumerate() {
+        eprintln!("Processing municipality {kommun_id} ({}/{})...", i + 1, municipalities.len());
+
+        let gpkg_path = source::belagenhet::download::download_municipality(kommun_id)?;
+        let appending = !is_first;
+
+        source::belagenhet::convert(&cfg, &gpkg_path, output, appending)?;
+
+        std::fs::remove_file(&gpkg_path).ok();
+        is_first = false;
+    }
+
+    let duration = start.elapsed().as_secs_f64();
+    let size_mb = std::fs::metadata(output).map(|m| m.len() as f64 / (1024.0 * 1024.0)).unwrap_or(0.0);
+    eprintln!(
+        "Belägenhetsadress conversion completed in {duration:.2} seconds. {} municipalities processed. Output: {}, size: {size_mb:.2} MB.",
+        municipalities.len(),
+        output.display()
+    );
     Ok(())
 }

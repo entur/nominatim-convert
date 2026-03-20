@@ -10,11 +10,26 @@ thread_local! {
          +step +proj=longlat +datum=WGS84 \
          +step +proj=unitconvert +xy_in=rad +xy_out=deg"
     ).expect("Failed to create UTM33N -> WGS84 projection");
+
+    static SWEREF99TM_TO_WGS84: proj::Proj = proj::Proj::new(
+        "+proj=pipeline \
+         +step +inv +proj=tmerc +lat_0=0 +lon_0=15 +k=0.9996 +x_0=500000 +y_0=0 +ellps=GRS80 \
+         +step +proj=longlat +datum=WGS84 \
+         +step +proj=unitconvert +xy_in=rad +xy_out=deg"
+    ).expect("Failed to create SWEREF99 TM -> WGS84 projection");
 }
 
 /// Convert UTM zone 33N (EPSG:25833) to WGS84 lat/lon using the proj crate.
 pub fn convert_utm33_to_lat_lon(easting: f64, northing: f64) -> Coordinate {
     UTM33_TO_WGS84.with(|proj| {
+        let (lon, lat) = proj.convert((easting, northing)).expect("Failed to convert coordinates");
+        Coordinate::new(lat, lon)
+    })
+}
+
+/// Convert SWEREF99 TM (EPSG:3006) to WGS84 lat/lon using the proj crate.
+pub fn convert_sweref99tm_to_lat_lon(easting: f64, northing: f64) -> Coordinate {
+    SWEREF99TM_TO_WGS84.with(|proj| {
         let (lon, lat) = proj.convert((easting, northing)).expect("Failed to convert coordinates");
         Coordinate::new(lat, lon)
     })
@@ -89,6 +104,34 @@ mod tests {
             "lat {} should be in Norway range", coord.lat);
         assert!(coord.lon > 4.0 && coord.lon < 32.0,
             "lon {} should be in Norway range", coord.lon);
+    }
+
+    #[test]
+    fn test_sweref99tm_conversion_produces_degrees() {
+        // SWEREF99 TM central meridian is 15°E; easting=500000 is on the central meridian
+        let coord = convert_sweref99tm_to_lat_lon(500000.0, 6500000.0);
+        assert!(coord.lat > 50.0 && coord.lat < 70.0,
+            "lat should be in degrees (50-70), got {}", coord.lat);
+        assert!((coord.lon - 15.0).abs() < 0.01,
+            "lon should be ~15° on central meridian, got {}", coord.lon);
+    }
+
+    #[test]
+    fn test_sweref99tm_stockholm() {
+        // Stockholm city center approx SWEREF99 TM: E 674032, N 6580126
+        let coord = convert_sweref99tm_to_lat_lon(674032.0, 6580126.0);
+        assert!((coord.lat - 59.33).abs() < 0.05,
+            "lat should be ~59.33 for Stockholm, got {}", coord.lat);
+        assert!((coord.lon - 18.07).abs() < 0.05,
+            "lon should be ~18.07 for Stockholm, got {}", coord.lon);
+    }
+
+    #[test]
+    fn test_sweref99tm_deterministic() {
+        let c1 = convert_sweref99tm_to_lat_lon(500000.0, 7000000.0);
+        let c2 = convert_sweref99tm_to_lat_lon(500000.0, 7000000.0);
+        assert_eq!(c1.lat, c2.lat);
+        assert_eq!(c1.lon, c2.lon);
     }
 
     #[test]

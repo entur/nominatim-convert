@@ -11,6 +11,10 @@ impl Country {
         Self { name: "no".to_string(), three_letter_code: "NOR".to_string() }
     }
 
+    pub fn se() -> Self {
+        Self { name: "se".to_string(), three_letter_code: "SWE".to_string() }
+    }
+
     pub fn parse(code: Option<&str>) -> Option<Self> {
         let code = code?;
         if code.is_empty() {

@@ -12,6 +12,8 @@ pub struct Config {
     #[serde(rename = "groupOfStopPlaces")]
     pub group_of_stop_places: GroupOfStopPlacesConfig,
     pub importance: ImportanceConfig,
+    #[serde(default)]
+    pub belagenhet: BelagenhetConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -82,6 +84,30 @@ pub struct GroupOfStopPlacesConfig {
     pub gos_boost_factor: f64,
     #[serde(rename = "rankAddress")]
     pub rank_address: i32,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct BelagenhetConfig {
+    #[serde(rename = "addressPopularity", default = "default_belagenhet_address_pop")]
+    pub address_popularity: f64,
+    #[serde(rename = "streetPopularity", default = "default_belagenhet_street_pop")]
+    pub street_popularity: f64,
+    #[serde(rename = "rankAddress", default = "default_belagenhet_rank")]
+    pub rank_address: i32,
+}
+
+fn default_belagenhet_address_pop() -> f64 { 20.0 }
+fn default_belagenhet_street_pop() -> f64 { 20.0 }
+fn default_belagenhet_rank() -> i32 { 26 }
+
+impl Default for BelagenhetConfig {
+    fn default() -> Self {
+        Self {
+            address_popularity: default_belagenhet_address_pop(),
+            street_popularity: default_belagenhet_street_pop(),
+            rank_address: default_belagenhet_rank(),
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Copy)]

@@ -1,3 +1,4 @@
+pub mod belagenhet;
 pub mod matrikkel;
 pub mod osm;
 pub mod poi;
