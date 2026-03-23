@@ -44,6 +44,12 @@ pub(crate) const OBJECT_TYPE_RELATION: &str = "R";
 // OsmEntityConverter
 // ---------------------------------------------------------------------------
 
+/// Converts individual OSM elements (nodes, ways, relations) into Nominatim places.
+///
+/// The `'a` lifetime means this struct *borrows* (does not own) the indexes, coordinate
+/// stores, and config that were built up during passes 1-3. All borrowed data must
+/// outlive this converter. This avoids copying large data structures while the borrow
+/// checker guarantees the references stay valid at compile time.
 pub(crate) struct OsmEntityConverter<'a> {
     pub(crate) nodes_coords: &'a CoordinateStore,
     pub(crate) way_centroids: &'a CoordinateStore,

@@ -10,12 +10,14 @@ use crate::target::nominatim_place::NominatimPlace;
 
 use super::admin::{ADMIN_LEVEL_COUNTY, ADMIN_LEVEL_MUNICIPALITY, AdministrativeBoundaryIndex};
 
+/// Data collected in pass 1 (relations): admin boundaries and POI relation members.
 pub(crate) struct Pass1Result {
     pub admin_relations: Vec<AdminRelationData>,
     pub poi_relation_member_way_ids: HashSet<i64>,
     pub poi_relation_node_ids: HashSet<i64>,
 }
 
+/// Data collected in pass 2 (ways): streets, POI ways, and the node IDs needed for pass 3.
 pub(crate) struct Pass2Result {
     pub street_ways: Vec<StreetWayData>,
     pub poi_way_ids: HashSet<i64>,

@@ -43,8 +43,12 @@ impl StreetSegment {
 // StreetIndex -- grid-based spatial index
 // ---------------------------------------------------------------------------
 
+/// Grid cell size in degrees (~550 m at 60°N latitude). Streets are bucketed into
+/// cells of this size for fast spatial lookup.
 const GRID_SIZE: f64 = 0.005;
+/// Maximum number of grid rings to expand when searching for the nearest street.
 const MAX_SEARCH_RADIUS: i32 = 10;
+/// Streets farther than this (in meters) are not considered a match.
 const MAX_DISTANCE_METERS: f64 = 100.0;
 
 pub const HIGHWAY_TYPES: &[&str] = &[
@@ -61,6 +65,12 @@ pub const HIGHWAY_TYPES: &[&str] = &[
     "road",
 ];
 
+/// Grid-based spatial index for finding the nearest street to a coordinate.
+///
+/// The `lookup_cache` uses `RefCell` to allow caching through a shared (`&self`) reference.
+/// This is Rust's "interior mutability" pattern -- the borrow rules are checked at runtime
+/// instead of compile time, letting `find_nearest_street` cache results without requiring
+/// `&mut self`. (In Kotlin/Java, you'd just use a mutable field -- Rust is more explicit.)
 pub struct StreetIndex {
     segments: Vec<StreetSegment>,
     spatial_index: HashMap<(i32, i32), Vec<usize>>,

@@ -3,6 +3,9 @@ use crate::common::country::Country;
 use country_boundaries::{CountryBoundaries, LatLon};
 use std::sync::LazyLock;
 
+// `thread_local!` gives each thread its own Proj instance, avoiding mutex contention.
+// Proj objects are expensive to create but cheap to reuse, so caching per-thread is
+// ~1000x faster than creating a new one per conversion call.
 thread_local! {
     static UTM33_TO_WGS84: proj::Proj = proj::Proj::new(
         "+proj=pipeline \
@@ -38,6 +41,8 @@ pub fn convert_sweref99tm_to_lat_lon(easting: f64, northing: f64) -> Coordinate 
 /// Embedded country boundaries data (same file as used by Kotlin converter).
 const BOUNDARIES_DATA: &[u8] = include_bytes!("../../data/boundaries60x30.ser");
 
+/// `LazyLock` is Rust's equivalent of Kotlin's `by lazy { }` -- the boundaries data is
+/// deserialized once on first access and then shared immutably across all threads.
 static BOUNDARIES: LazyLock<CountryBoundaries> = LazyLock::new(|| {
     CountryBoundaries::from_reader(BOUNDARIES_DATA)
         .expect("Failed to load country boundaries")

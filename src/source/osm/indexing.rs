@@ -11,6 +11,8 @@ use super::street::StreetIndex;
 // Intermediate data collected across passes
 // ---------------------------------------------------------------------------
 
+/// Admin boundary relation data collected during pass 1, used to build the
+/// spatial index after node coordinates are available (pass 3).
 pub(crate) struct AdminRelationData {
     pub(crate) name: String,
     pub(crate) admin_level: i32,
@@ -19,6 +21,8 @@ pub(crate) struct AdminRelationData {
     pub(crate) country: Country,
 }
 
+/// Street way data collected during pass 2, used to build the street spatial
+/// index for nearest-street lookups.
 pub(crate) struct StreetWayData {
     pub(crate) name: String,
     pub(crate) node_ids: Vec<i64>,
@@ -35,12 +39,15 @@ pub(crate) fn build_admin_boundary_index(
     index: &mut AdministrativeBoundaryIndex,
 ) {
     for relation in admin_relations {
+        // Gather all coordinates for this admin boundary's ways.
+        // Each admin relation references multiple ways; each way references multiple nodes.
+        // We look up the node IDs for each way, then resolve each node ID to its coordinate.
         let all_node_coords: Vec<Coordinate> = relation
             .way_ids
             .iter()
             .flat_map(|way_id| {
-                admin_way_node_ids
-                    .get(way_id)
+                let node_ids = admin_way_node_ids.get(way_id);
+                node_ids
                     .map(|nids| {
                         nids.iter()
                             .filter_map(|&nid| nodes_coords.get(nid))

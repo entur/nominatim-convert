@@ -12,20 +12,27 @@ use super::popularity::OsmPopularityCalculator;
 
 // ---------------------------------------------------------------------------
 // Pass 4 intermediate data structures
+//
+// These hold the POI data collected during the final PBF scan. We store owned
+// Strings (not references) because the PBF reader only lends data for the
+// duration of each element callback.
 // ---------------------------------------------------------------------------
 
+/// POI nodes: coordinates and tags for nodes that match a configured filter.
 pub(crate) struct NodePoiData {
     pub(crate) ids: Vec<i64>,
     pub(crate) coords: HashMap<i64, Coordinate>,
     pub(crate) tags: HashMap<i64, Vec<(String, String)>>,
 }
 
+/// Way data: node lists and tags for ways referenced by POI relations or matching filters directly.
 pub(crate) struct WayPassData {
     pub(crate) ids: Vec<i64>,
     pub(crate) way_node_ids: HashMap<i64, Vec<i64>>,
     pub(crate) way_tags: HashMap<i64, Vec<(String, String)>>,
 }
 
+/// Relation POI data: member node/way IDs and tags for relations matching filters.
 pub(crate) struct RelationPassData {
     pub(crate) ids: Vec<i64>,
     pub(crate) member_node_ids: HashMap<i64, Vec<i64>>,

@@ -4,15 +4,20 @@ use super::coordinate::Coordinate;
 use super::geometry::BoundingBox;
 use crate::common::country::Country;
 
+/// OSM admin_level for counties/regions (e.g. Norwegian fylker, Swedish län).
 pub const ADMIN_LEVEL_COUNTY: i32 = 4;
+/// OSM admin_level for municipalities (e.g. Norwegian kommuner, Swedish kommuner).
 pub const ADMIN_LEVEL_MUNICIPALITY: i32 = 7;
 
+/// Cache precision: coordinates are rounded to 0.01° (~1 km) grid cells for lookup caching.
 const CACHE_PRECISION: f64 = 100.0;
 
 // ---------------------------------------------------------------------------
 // AdministrativeBoundary
 // ---------------------------------------------------------------------------
 
+/// A county or municipality polygon from OSM, used for reverse-geocoding points
+/// to their administrative region.
 pub struct AdministrativeBoundary {
     pub name: String,
     pub admin_level: i32,
@@ -62,6 +67,9 @@ impl AdministrativeBoundary {
 // AdministrativeBoundaryIndex
 // ---------------------------------------------------------------------------
 
+/// Spatial index over admin boundaries. Given a coordinate, finds the containing
+/// county and municipality using a 3-tier strategy: ray-casting → bounding box →
+/// nearest centroid. Results are cached on a ~0.01° grid to avoid repeated lookups.
 pub struct AdministrativeBoundaryIndex {
     counties: Vec<AdministrativeBoundary>,
     municipalities: Vec<AdministrativeBoundary>,

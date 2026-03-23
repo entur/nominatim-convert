@@ -25,9 +25,18 @@ pub(crate) fn round6(v: f64) -> f64 {
 
 const BASE_LAT: f64 = -90.0;
 const BASE_LON: f64 = -180.0;
-const COORD_SCALE: f64 = 1e5; // ~1.1 m precision
+/// Scaling factor for coordinate storage. At 1e5, one integer unit ≈ 1.1 meters,
+/// which is sufficient precision for centroid calculations while halving memory
+/// usage compared to storing raw f64 pairs.
+const COORD_SCALE: f64 = 1e5;
 const LOAD_FACTOR: f64 = 0.7;
 
+/// A memory-efficient coordinate lookup table mapping OSM node IDs to lat/lon.
+///
+/// Uses an open-addressing hash map with linear probing instead of `HashMap` to
+/// reduce memory overhead -- OSM files can contain millions of nodes. Coordinates
+/// are stored as delta-encoded integers (offset from -90/-180) at 1e5 scale
+/// (~1.1 m precision) to use i32 instead of f64, further reducing memory.
 pub struct CoordinateStore {
     ids: Vec<i64>,
     delta_lats: Vec<i32>,

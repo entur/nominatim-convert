@@ -1,3 +1,9 @@
+// Data flow: CLI args → resolve input (URL/file/ZIP) → source converter → JsonWriter → NDJSON output
+//
+// Each subcommand maps to a converter in `source::*`. The `run_conversion` helper handles
+// config loading, input resolution, timing, and output writing so individual converters
+// only need to implement the transform step.
+
 mod common;
 mod config;
 mod source;
@@ -145,6 +151,9 @@ fn main() {
     // We use a pipeline string that doesn't need the database.
     if std::env::var_os("PROJ_DATA").is_none() {
         // SAFETY: called at the start of main before any other threads are spawned.
+        // This is `unsafe` because modifying environment variables is not thread-safe
+        // in general -- another thread could read the env concurrently. Here it's fine
+        // because no threads exist yet.
         unsafe { std::env::set_var("PROJ_DATA", "/dev/null") };
     }
 
